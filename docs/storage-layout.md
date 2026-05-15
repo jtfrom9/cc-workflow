@@ -13,7 +13,7 @@
 └── log/                        ← 任意のデバッグログ置き場（現状未使用）
 ```
 
-`~/.cc-workflow/` 配下は実行時に自動で作成される。途中で消したり書き換えても、必要なものは次の起動で再生成される。
+`~/.cc-workflow/` 配下は実行時に自動で作成される。`state/` はセッション状態なので次の起動で再作成されるが、`tasks/` は保存済み task の本体なので、削除するとその履歴は復元できない。
 
 ## project の決定
 
@@ -21,7 +21,7 @@
 
 - `SessionStart` フック (`hooks/session-start.sh`) が `pwd` を `state/<sid>/cwd` に記録する
 - 以降のフック・コマンドはその `cwd` を `project_root` として固定する
-- セッション中に Claude Code の cwd がサブディレクトリにシフトしても、project 名は化けない
+- セッション中に Claude Code の cwd がサブディレクトリにシフトしても、project 名は変わらない
 
 たとえば `~/work/foo/` で起動したセッションのタスクはすべて `tasks/foo/` 配下に積まれる。同じ親リポでも `~/work/foo/sub-a/` で起動した場合は `tasks/sub-a/` という別 project として独立する。
 
@@ -37,7 +37,7 @@
 | `<yymmdd>` | `260516` | 採取日（ローカルタイム） |
 | `<original-name>` | `pure-pondering-crystal` | プラン本文の H1 から抽出した slug、または Claude が決めたタイトル、または `auto-HHMMSS`（自動 checkpoint の場合） |
 
-`<original-name>` は UTF-8 セーフに slug 化されるので、日本語タイトルも `ユーザ認証機能の追加` のようにそのまま入る。`/` `\` `:` `*` `?` `"` `<>` `|` などパス禁則文字と ASCII 空白は `-` に潰される。
+`<original-name>` は UTF-8 セーフに slug 化されるので、日本語タイトルも `ユーザ認証機能の追加` のようにそのまま入る。`/` `\` `:` `*` `?` `"` `<>` `|` などパス禁則文字と ASCII 空白は `-` に置換される。
 
 ## index の採番
 
@@ -72,4 +72,4 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 find ~/.cc-workflow/state -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
 ```
 
-`tasks/` 配下を消すか残すかは判断次第。プラン本文 + 採取時のメタ情報がすべて入っているので、長期保存しても 1 件 1 KB 程度に収まる。
+`tasks/` 配下を消すか残すかは判断次第。手動 checkpoint や `/cc-workflow:summarise` 実行後の自動 checkpoint には詳細な作業記録や会話抜粋が入ることがあるため、長期保存する場合は内容を確認しておく。

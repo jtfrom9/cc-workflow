@@ -29,7 +29,7 @@
 要約が必要なら `/cc-workflow:summarise` を実行。
 ```
 
-採取時に本文を書き込まないのは、コスト・遅延・サンドボックス制約を避けるため。あとから `/summarise` を叩くと、`tools/regenerate_summary.py` が JSONL から会話履歴を抜き出してこの `plan.md` を上書きする（自動 checkpoint 限定の挙動）。
+採取時に本文を書き込まないのは、コスト・遅延・サンドボックス制約を避けるため。あとから `/cc-workflow:summarise` を実行すると、`tools/regenerate_summary.py` が JSONL から会話履歴を抜き出してこの `plan.md` を上書きする（自動 checkpoint 限定の挙動）。
 
 ### 手動 checkpoint (`trigger: manual`)
 
@@ -85,7 +85,7 @@ status: pending
 
 ## `summary.md`
 
-`plan.md` が閾値 (`CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行) を超えたときだけ生成される。生成は `tools/_summarize_worker.py` がバックグラウンドで `claude -p` を呼ぶ非同期処理。
+ExitPlanMode 由来の task と手動 checkpoint では、`plan.md` が閾値 (`CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行) を超えたときに生成される。自動 checkpoint では採取時に生成せず、後から `/cc-workflow:summarise` を実行したときに生成する。生成は `tools/_summarize_worker.py` がバックグラウンドで `claude -p` を呼ぶ非同期処理。
 
 ### 成功時
 
@@ -132,5 +132,5 @@ status: pending
 | ExitPlanMode を承認 | `plan.md`（移動）, `task.md` |
 | Stop フックでトークン閾値超え | `plan.md`（メタ情報のみ）, `task.md` |
 | `/checkpoint` 手動実行 | `plan.md`（Claude が詳細記述）, `task.md` |
-| 上記いずれかで `plan.md` が長い | `summary.md` も追加 |
+| ExitPlanMode または手動 `/checkpoint` で `plan.md` が長い | `summary.md` も追加 |
 | `/summarise` 実行 | 既存 `summary.md` を上書き（自動 checkpoint の場合は `plan.md` も会話履歴で上書き） |
