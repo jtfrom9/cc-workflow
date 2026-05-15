@@ -44,7 +44,7 @@ claude plugin install jtfrom9-cc-workflow
 ├── commands/
 │   ├── restore.md                   ← /jtfrom9-cc-workflow:restore <taskId> でプランを復元
 │   ├── checkpoint.md                ← /jtfrom9-cc-workflow:checkpoint で議論を保存
-│   ├── summarise.md                 ← /jtfrom9-cc-workflow:summarise <taskId> で summary.md 再生成
+│   ├── summarise.md                 ← /jtfrom9-cc-workflow:summarise で開いている task の summary.md 再生成
 │   └── tasks.md                     ← /jtfrom9-cc-workflow:tasks で task 一覧表示
 ├── scripts/                         ← シンプルな bash ヘルパー (commands から呼ばれる)
 │   ├── restore-task.sh              ←   restore コマンドのヘルパー
@@ -175,7 +175,7 @@ status: pending
 
 - 会話の本文（ユーザの発話・Claude の応答）は `plan.md` に転記しない。JSONL を別途参照する設計
 - 採取時点で要約も走らせない（コスト・遅延・サンドボックス制約を避けるため）
-- 中身の要約が欲しくなったら、後から `/jtfrom9-cc-workflow:summarise` を手動実行する
+- 中身の要約が欲しくなったら、後から `/jtfrom9-cc-workflow:summarise` を手動実行する。自動 checkpoint のタスクなら、`summarise` は **JSONL から前回タスク以降の会話履歴を抜き出して plan.md に書き込んでから** 要約する（メタ情報のみの状態から会話入りに upgrade される）
 
 スクリプト: [`python/checkpoint.py`](python/checkpoint.py) （`--auto` 起動時）
 
@@ -297,10 +297,22 @@ status: pending
 これらの操作で `~/.jtfrom9-cc-workflow/state/<sid>/open_task_id` が更新される。
 `summarise` は同じファイルを読み、対象 plan.md に対して `_summarize_worker.py` を spawn する。
 
+#### 自動 checkpoint タスクに対する挙動
+
+`task.md` が `source: checkpoint` かつ `trigger: auto` の場合、`summarise` は要約前に **JSONL から会話履歴を抜き出して plan.md を書き換える**:
+
+1. `prev_task_id` から前回タスクの `created_at` を引く（無ければセッション最初から）
+2. このタスクの `created_at` までの範囲で、現セッションの user / assistant 発話を JSONL から抽出
+3. `plan.md` に「`## 会話履歴 (user / assistant)`」付きで書き出す（メタ情報のみ状態から会話入りに upgrade）
+4. その plan.md を入力にいつもの要約ワーカーを起動
+
+それ以外（手動 checkpoint で Claude が書き込んだ plan.md、`source: plan`、`source: prompt`）はそのまま plan.md を要約に渡す。
+
 open task が無い場合（restore 等まだ何も操作していない場合）は、その旨と `/jtfrom9-cc-workflow:restore` の案内が表示される。
 
 ユースケース:
 
+- 自動 checkpoint の中身を本当の会話で見たい → これで JSONL から復元 + 要約
 - 自動生成された `summary.md` の出来が悪い、もしくは失敗していた → これで撃ち直す
 - plan.md を手動編集した後に要約を更新したい
 - 後から要約だけ欲しくなった

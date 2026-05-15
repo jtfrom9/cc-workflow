@@ -82,36 +82,33 @@ def _write_plan_md(
     task_id: str,
     trigger: str,
     trigger_reason: str,
-    now_iso: str,
-    sid: str,
-    current_tokens: int,
-    prev_taskid: str,
-    prev_tokens: int,
-    prev_sid: str,
     transcript: Path,
 ) -> None:
-    if trigger == "auto":
-        intro = f"_(Stop フックで自動採取された checkpoint。トリガ: {trigger_reason})_"
-    else:
-        intro = "_(`/jtfrom9-cc-workflow:checkpoint` で明示的に保存された checkpoint。"\
-                " 詳細は Claude が後段でこのファイルを上書きします。)_"
+    """Write the initial plan.md template.
 
-    lines = [
-        f"# {task_id}",
-        "",
-        intro,
-        "",
-        f"- 採取時刻: `{now_iso}`",
-        f"- セッション ID: `{sid}`",
-        f"- 現在のコンテキスト使用量: `{current_tokens:,}` tokens",
-        f"- 前回タスク: `{prev_taskid or '(なし)'}`",
-        f"- 前回タスク時のトークン: `{prev_tokens:,}`",
-        f"- 前回セッション ID: `{prev_sid or '(なし)'}`",
-        "",
-        f"会話の中身はセッショントランスクリプトを参照: `{transcript}`",
-        "",
-    ]
-    plan_path.write_text("\n".join(lines), encoding="utf-8")
+    - auto trigger: ends here. The file stays as a concise pointer.
+    - manual trigger: Claude overwrites this file with detailed content
+      after the script returns (the script's output is just a fallback).
+
+    Detailed per-task metadata (sid, tokens, prev_*) lives in task.md
+    frontmatter so we don't duplicate it here.
+    """
+    if trigger == "auto":
+        body = (
+            f"# {task_id}\n\n"
+            f"自動 checkpoint。トリガ: {trigger_reason}\n\n"
+            f"メタ情報は `task.md` の frontmatter を、"
+            f"会話本文はセッショントランスクリプト `{transcript}` を参照してください。\n"
+            f"要約が必要なら `/jtfrom9-cc-workflow:summarise` を実行。\n"
+        )
+    else:
+        body = (
+            f"# {task_id}\n\n"
+            f"_(/jtfrom9-cc-workflow:checkpoint の雛形。"
+            f" Claude が直後にこのファイルを詳細内容で上書きします。"
+            f" 上書きされていなければエラー。)_\n"
+        )
+    plan_path.write_text(body, encoding="utf-8")
 
 
 def _write_task_md(
@@ -238,12 +235,6 @@ def main() -> int:
         task_id=task_id,
         trigger=trigger,
         trigger_reason=trigger_reason,
-        now_iso=now_iso,
-        sid=sid,
-        current_tokens=current_tokens,
-        prev_taskid=prev_taskid,
-        prev_tokens=prev_tokens,
-        prev_sid=prev_sid,
         transcript=transcript,
     )
     _write_task_md(

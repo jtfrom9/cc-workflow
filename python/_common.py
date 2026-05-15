@@ -321,6 +321,81 @@ def current_context_tokens(session_id: str, project_root: Path) -> int:
     return latest
 
 
+def extract_session_slice(
+    transcript_path: Path,
+    session_id: str,
+    after_iso: str = "",
+    before_iso: str = "",
+) -> str:
+    """Return user+assistant messages from the JSONL as markdown.
+
+    Filters:
+      - matching ``session_id``
+      - ``after_iso < timestamp <= before_iso`` (either bound may be "" to skip)
+
+    Each retained message becomes a ``## user`` / ``## assistant`` block with
+    text content concatenated. Non-text content (tool_use, images, ...) is
+    described briefly so the summary can still mention it.
+    """
+    if not transcript_path.is_file():
+        return ""
+
+    out: list[str] = []
+    try:
+        with transcript_path.open(encoding="utf-8") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if session_id and obj.get("sessionId") != session_id:
+                    continue
+                ts = obj.get("timestamp", "")
+                if after_iso and ts and ts <= after_iso:
+                    continue
+                if before_iso and ts and ts > before_iso:
+                    continue
+
+                msg = obj.get("message")
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role")
+                if role not in ("user", "assistant"):
+                    continue
+
+                parts: list[str] = []
+                content = msg.get("content")
+                if isinstance(content, str):
+                    if content.strip():
+                        parts.append(content)
+                elif isinstance(content, list):
+                    for p in content:
+                        if not isinstance(p, dict):
+                            continue
+                        kind = p.get("type")
+                        if kind == "text":
+                            t = p.get("text", "")
+                            if t and t.strip():
+                                parts.append(t)
+                        elif kind == "tool_use":
+                            name = p.get("name", "?")
+                            parts.append(f"_[tool_use: {name}]_")
+                        elif kind == "tool_result":
+                            parts.append("_[tool_result]_")
+                        elif kind == "thinking":
+                            parts.append("_[thinking]_")
+
+                if parts:
+                    out.append(f"## {role}")
+                    out.append("")
+                    out.append("\n\n".join(parts))
+                    out.append("")
+    except OSError:
+        return ""
+
+    return "\n".join(out)
+
+
 def latest_task_in_project(project: str) -> Path | None:
     """Return the task folder with the highest 4-digit index in this project,
     or ``None`` if there are no tasks yet. Hidden entries (``.last_index``)
