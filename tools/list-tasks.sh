@@ -8,7 +8,8 @@ set -uo pipefail
 
 DATA_DIR="${CC_WORKFLOW_DIR:-$HOME/.cc-workflow}"
 
-PROJECT=$(basename "$PWD")
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT=$(python3 "$SCRIPT_DIR/project-info.py")
 
 PROJECT_TASKS="$DATA_DIR/tasks/$PROJECT"
 
