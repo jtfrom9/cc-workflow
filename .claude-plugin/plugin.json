@@ -24,11 +24,6 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/suggest-rename.sh"]
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/python/save_prompt_as_task.py"]
           }
         ]
       }
@@ -41,6 +36,17 @@
             "type": "command",
             "command": "python3",
             "args": ["${CLAUDE_PLUGIN_ROOT}/python/relocate_plan.py"]
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/python/checkpoint.py", "hook"]
           }
         ]
       }

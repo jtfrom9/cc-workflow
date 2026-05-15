@@ -56,10 +56,8 @@ claude plugin install jtfrom9-cc-workflow
 │   ├── maybe_spawn_summary.py       ←   plan.md が長ければ要約ワーカーを spawn
 │   ├── regenerate_summary.py        ←   /summarise の本体（今開いている task の summary.md を再生成）
 │   ├── mark_task_open.py            ←   /restore から呼ばれて open_task_id を更新
-│   ├── status_line.py               ←   statusLine 用: コンテキスト残量表示
-│   ├── save_prompt_as_task.py       ←   UserPromptSubmit: 分類器付きの task 採取
 │   ├── relocate_plan.py             ←   PostToolUse(ExitPlanMode): plan ファイルを task 化
-│   └── init_checkpoint.py           ←   checkpoint コマンドのヘルパー
+│   └── checkpoint.py                ←   Stop フックの自動 checkpoint + /checkpoint コマンドの init ヘルパー (引数 hook / init)
 └── README.md
 ```
 
@@ -105,8 +103,8 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 `source:` フィールドで、task がどのフックから作られたかが分かる:
 
 - `source: plan` — プランモードで承認された ExitPlanMode の plan を元に作られた (`python/relocate_plan.py`)
-- `source: prompt` — プランモード外でユーザが直接送信した指示文から作られた (`python/save_prompt_as_task.py`)
-- `source: checkpoint` — `/jtfrom9-cc-workflow:checkpoint` から手動で作られた (`python/init_checkpoint.py` + Claude が要約を Write)
+- `source: checkpoint` — `/jtfrom9-cc-workflow:checkpoint` から手動で作られた (`python/checkpoint.py init` + Claude が要約を Write)
+- `source: checkpoint-auto` — Stop フックでトークン閾値を超えて自動採取された (`python/checkpoint.py hook`)
 
 同じセッションで両方発火すると、論理上 1 つのタスクに対して task フォルダが 2 つ並ぶことがある。重複は許容する設計で、不要な方は手動で削除する。
 
@@ -140,48 +138,75 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 | `JTFROM9_CC_WORKFLOW_RENAME_THRESHOLD_COUNT` | `4` | 何回続いたら提案するか |
 | `JTFROM9_CC_WORKFLOW_DIR` | `$HOME/.jtfrom9-cc-workflow` | 実行時データ置き場のルート |
 
-### save-prompt-as-task: プランモードを忘れた指示も内容で判定して自動 task 化
+### checkpoint (hook モード): Stop でトークン使用量を見て自動採取
 
-プランモードに入らずに指示を送信した場合でも、その内容が「一定規模のコード変更要求」であれば task として保存する。`relocate-plan` の補完的な役割。
+Claude の応答が終わるたびに（`Stop` フック）、現在のコンテキスト使用量を確認して、必要なら task を自動採取する。判定は LLM に投げず、セッショントランスクリプト (`~/.claude/projects/<encoded>/<sid>.jsonl`) の `usage.cache_read_input_tokens + cache_creation_input_tokens + input_tokens` をそのまま読む。
 
-判定はバックグラウンドで Haiku に YES/NO で分類させる。フック自体は即時 return するので、ユーザ体感の遅延はない。task が出来上がるのは分類が終わった数秒〜十数秒後。
+トリガルール:
 
-処理フロー:
+- **「前回タスク」** = `~/.jtfrom9-cc-workflow/tasks/<project>/` 内で **最大 index** の task（source 問わず）
+- **同セッション**: 現在トークン > 前回タスク時のトークン × (1 + 30%) → 採取
+- **別セッション**: 現在トークン > 最大コンテキスト × 30% → 採取
+- **前回タスクなし**: 別セッションの場合と同じく 30% 越えで採取
 
+#### 採取される内容（重要）
+
+`~/.jtfrom9-cc-workflow/tasks/<project>/<taskId>/` の中身:
+
+**`plan.md` （メタ情報のみ。会話本文は転記しない）**
+
+```markdown
+# Auto-checkpoint <ISO 時刻>
+
+_(Stop フックで自動採取された checkpoint。トリガ: <発火理由文>)_
+
+- 採取時刻: `<ISO 時刻>`
+- セッション ID: `<sid>`
+- 現在のコンテキスト使用量: `<tokens 数>` tokens
+- 前回タスク: `<前回 taskId or "(なし)">`
+- 前回タスク時のトークン: `<前回 tokens 数>`
+- 前回セッション ID: `<前回 sid or "(なし)">`
+
+会話の中身はセッショントランスクリプトを参照: `~/.claude/projects/<encoded>/<sid>.jsonl`
 ```
-UserPromptSubmit
- → python/save_prompt_as_task.py
-     早期 exit:
-       - スラッシュコマンド (/ で始まる) → スキップ
-       - MIN_LEN_FOR_CLASSIFY 未満の文字数 → スキップ
-       - 前回プロンプトと完全一致 (state/<sid>/last_prompt_hash) → スキップ
-     バックグラウンド処理:
-       - claude -p --model haiku で YES/NO 分類
-       - YES なら task フォルダ作成 (plan.md = 原文プロンプト, task.md, summary.md は長文時のみ)
-       - NO なら何もしない
+
+**`task.md` （frontmatter にトリガ情報）**
+
+```yaml
+---
+taskId: "<taskId>"
+created_at: "<ISO 時刻>"
+project: "<project>"
+project_root: "<cwd>"
+session_id: "<sid>"
+source: checkpoint-auto
+tokens: <現在トークン数>
+prev_task_id: "<前回 taskId>"
+prev_tokens: <前回トークン数>
+prev_session_id: "<前回 sid>"
+trigger_reason: "<発火理由文>"
+status: pending
+---
 ```
 
-`task.md` の `source: prompt` で他のタスクと区別できる。判定結果は `classifier_decision` フィールドにも残る。
+**何を保存「しない」か**
 
-スクリプト: [`python/save_prompt_as_task.py`](python/save_prompt_as_task.py)
+- 会話の本文（ユーザの発話・Claude の応答）は `plan.md` に転記しない。JSONL を別途参照する設計
+- 採取時点で要約も走らせない（コスト・遅延・サンドボックス制約を避けるため）
+- 中身の要約が欲しくなったら、後から `/jtfrom9-cc-workflow:summarise` を手動実行する
+
+スクリプト: [`python/checkpoint.py`](python/checkpoint.py) (`hook` モード)
 
 | 変数 | デフォルト | 意味 |
 |---|---|---|
-| `JTFROM9_CC_WORKFLOW_SAVE_PROMPT_AS_TASK` | `1` | `0` で無効化 |
-| `JTFROM9_CC_WORKFLOW_CLASSIFIER_MODEL` | `haiku` | 分類に使うモデル alias もしくはフル ID |
-| `JTFROM9_CC_WORKFLOW_MIN_LEN_FOR_CLASSIFY` | `20` | これ未満は分類器に投げず即スキップ |
-| `JTFROM9_CC_WORKFLOW_CLASSIFIER_INPUT_BYTES` | `2000` | 分類器に渡すプロンプト上限バイト数（トークン節約） |
-
-#### 再帰防止
-
-子 `claude -p` プロセスが同じ UserPromptSubmit フックを再帰発火しないよう、バックグラウンド処理開始時に環境変数 `_JTFROM9_CC_WORKFLOW_HOOK_RUNNING=1` を立てる。子プロセスでフックが呼ばれてもこの変数を見て即 exit する。
+| `JTFROM9_CC_WORKFLOW_AUTO_CHECKPOINT` | `1` | `0` で hook モード無効化 |
+| `JTFROM9_CC_WORKFLOW_CHECKPOINT_PCT` | `30` | 採取の閾値パーセント |
+| `JTFROM9_CC_WORKFLOW_MAX_CONTEXT_TOKENS` | `200000` | 別セッション判定の母数。Opus 1M variant 利用時は `1000000` に |
 
 #### 制約
 
-- 分類器はブレることがあるため、保守的に「不明なら NO」と判定するよう指示している
-- それでも誤判定はあり得る。task が増え過ぎたら `JTFROM9_CC_WORKFLOW_SAVE_PROMPT_AS_TASK=0` で無効化するか、不要 task を手動削除する
-- `claude -p` を呼ぶため Haiku の API トークンを少額消費する
-- 環境によっては `claude` バイナリが docker / sandbox ラッパーを経由しており、非 TTY サブプロセス起動を許容しないことがある。その場合 `JTFROM9_CC_WORKFLOW_CLAUDE_CMD` で直接バイナリパスを指定するか、`false` を指定して要約呼び出し自体を抑制する
+- 採取される plan.md には会話本文を載せない（トランスクリプトを別途参照する想定）。要約が欲しければ `/jtfrom9-cc-workflow:summarise` を後から手動実行する
+- Stop フックは毎ターン発火するが、閾値ロジックで実質的に発火頻度は抑制される（前回比 30% 増えたタイミングのみ）
 
 ### relocate-plan: プランをタスクフォルダにまとめて、承認後にいったん停止
 
@@ -262,7 +287,7 @@ status: pending
 
 挙動:
 
-- Python で [`python/init_checkpoint.py`](python/init_checkpoint.py) を呼び、task ディレクトリと採番済みパス、加えて **同一セッション内の直前 checkpoint 情報** を取得する
+- Python で `python/checkpoint.py init <slug>` を呼び、task ディレクトリと採番済みパス、加えて **同一セッション内の直前 checkpoint 情報** を取得する
 - 直前 checkpoint がある場合は、Claude がその `plan.md` を Read して内容を把握し、**「以降 → 今」までの差分を詳細に** 新しい `plan.md` に書き出す
 - 直前 checkpoint が無い場合は、セッション最初から現時点までの全内容を対象に書き出す
 - 続けて Write ツールで `task.md` を書く（frontmatter に `prev_checkpoint_taskid` が入って連鎖する）
@@ -275,7 +300,7 @@ status: pending
 
 実体:
 - コマンド: [`commands/checkpoint.md`](commands/checkpoint.md)
-- ヘルパー: [`python/init_checkpoint.py`](python/init_checkpoint.py)
+- ヘルパー: [`python/checkpoint.py`](python/checkpoint.py) (`init` サブコマンド)
 
 ### `/jtfrom9-cc-workflow:summarise`: 今開いている task の summary.md を再生成
 
@@ -345,7 +370,7 @@ open task が無い場合（restore 等まだ何も操作していない場合�
 ## 動作要件
 
 - Claude Code CLI
-- **Python 3.9+**: 複雑なフック (`python/save_prompt_as_task.py` / `relocate_plan.py` / `init_checkpoint.py`) は Python。標準ライブラリのみ依存
+- **Python 3.9+**: 複雑なフック (`python/relocate_plan.py` / `checkpoint.py` ほか) は Python。標準ライブラリのみ依存
 - **bash**: シンプルなフック (`hooks/*.sh`) と一覧／復元ヘルパー (`scripts/*.sh`) は bash。`jq` も依存
 - 動作環境別:
   - **macOS / Linux**: bash・python3 ともに通常標準で入っている
@@ -375,38 +400,6 @@ find ~/.jtfrom9-cc-workflow/state -mindepth 1 -maxdepth 1 -type d -mtime +30 -ex
 - `context-pressure`: 圧縮直前に `PreCompact` で重要情報を保存させる
 - `long-session-warn`: セッションが N 時間 / N ターンを超えたら警告
 
-## 補助: ステータスラインでコンテキスト残量を表示
-
-[`python/status_line.py`](python/status_line.py) を Claude Code の `statusLine` 設定に登録すると、画面下に現在のコンテキスト使用率が出る。
-表示例:
-
-```
-🧠 ██████░░░░ 575k/1M (58%) · claude-opus-4-7
-```
-
-### 使い方
-
-このリポジトリ直下の [`settings.json`](settings.json) に `statusLine` 設定を入れてあるので、プラグインと一緒に `--settings` で読ませる:
-
-```sh
-claude --plugin-dir ~/src/jtfrom9-cc-workflow \
-       --settings  ~/src/jtfrom9-cc-workflow/settings.json
-```
-
-リポジトリの絶対パスは `${HOME}/work/jtfrom9/claude-settings` を前提にしているので、別パスに置いている場合は `settings.json` の `command` を書き換える。
-
-### なぜプラグイン側で自動登録しないか
-
-`statusLine` は Claude Code のトップレベル設定で、プラグインから登録する仕組みがない（hooks / commands / agents / skills / mcpServers しか提供できない）。
-そのため `--plugin-dir` だけだとステータスラインは出ず、`--settings` 併用が必須。
-
-### 実装メモ
-
-- セッションの `~/.claude/projects/<encoded-cwd>/<sid>.jsonl` の末尾を走査し、直近のアシスタント発話の `message.usage` を読む
-- `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` をコンテキスト累積トークンとして扱う
-- モデル ID から大まかな最大コンテキスト窓を推定 (`[1m]` 付き → 1M、その他 Opus → 1M、Sonnet/Haiku → 200k)。公式に厳密な値が公開されていないため、目安として動く
-- `refreshInterval: 10` で 10 秒ごとに再実行される設定にしてある
-
 ## 既知の制限
 
-- プラグインは Claude Code のトップレベル設定（`plansDirectory` / `statusLine` など）を上書きできない。プランファイルの整理は事後移動（`relocate-plan`）で、ステータスライン表示は手動 wire で対応している。
+- プラグインは Claude Code のトップレベル設定（`plansDirectory` など）を上書きできない。プランファイルの整理は事後移動（`relocate-plan`）で対応している。

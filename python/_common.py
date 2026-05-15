@@ -272,6 +272,80 @@ def read_open_task(session_id: str | None = None) -> str:
 
 
 # ----------------------------------------------------------------------
+# Claude Code session transcript inspection
+# ----------------------------------------------------------------------
+
+def session_transcript_path(session_id: str, project_root: Path) -> Path:
+    """Return the JSONL transcript path Claude Code uses for this session.
+
+    Claude Code encodes ``project_root`` by replacing path separators with ``-``
+    and stores transcripts at ``~/.claude/projects/<encoded>/<session_id>.jsonl``.
+    """
+    encoded = project_root.as_posix().replace("/", "-")
+    return Path.home() / ".claude" / "projects" / encoded / f"{session_id}.jsonl"
+
+
+def current_context_tokens(session_id: str, project_root: Path) -> int:
+    """Return the largest ``cache_read + cache_creation + input_tokens`` seen in
+    the session's transcript.
+
+    Treated as a proxy for "context size in tokens at the most recent turn"
+    because Claude Code emits this triple in the per-turn ``message.usage``
+    of each assistant response.
+    """
+    transcript = session_transcript_path(session_id, project_root)
+    if not transcript.is_file():
+        return 0
+    latest = 0
+    try:
+        with transcript.open(encoding="utf-8") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                msg = obj.get("message")
+                if not isinstance(msg, dict):
+                    continue
+                usage = msg.get("usage")
+                if not isinstance(usage, dict):
+                    continue
+                cr = usage.get("cache_read_input_tokens") or 0
+                cc = usage.get("cache_creation_input_tokens") or 0
+                it = usage.get("input_tokens") or 0
+                tot = cr + cc + it
+                if tot > latest:
+                    latest = tot
+    except OSError:
+        return 0
+    return latest
+
+
+def latest_task_in_project(project: str) -> Path | None:
+    """Return the task folder with the highest 4-digit index in this project,
+    or ``None`` if there are no tasks yet. Hidden entries (``.last_index``)
+    are skipped."""
+    pdir = project_tasks_dir(project)
+    if not pdir.is_dir():
+        return None
+    best: Path | None = None
+    best_idx = -1
+    try:
+        for entry in pdir.iterdir():
+            if not entry.is_dir() or entry.name.startswith("."):
+                continue
+            m = _INDEX_PREFIX_RE.match(entry.name)
+            if m:
+                idx = int(m.group(1))
+                if idx > best_idx:
+                    best_idx = idx
+                    best = entry
+    except OSError:
+        return None
+    return best
+
+
+# ----------------------------------------------------------------------
 # Cross-platform detached subprocess (POSIX + Windows)
 # ----------------------------------------------------------------------
 
