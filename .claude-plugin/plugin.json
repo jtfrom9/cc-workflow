@@ -12,7 +12,7 @@
           {
             "type": "command",
             "command": "bash",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/banner.sh"]
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"]
           }
         ]
       }

@@ -39,8 +39,9 @@ claude plugin install jtfrom9-cc-workflow
 <repo>/                              ← プラグインルート (= ${CLAUDE_PLUGIN_ROOT})
 ├── .claude-plugin/
 │   └── plugin.json                  ← プラグインマニフェスト（フック宣言などはここ）
+├── CLAUDE.md                        ← session-start.sh が読んで additionalContext として注入
 ├── hooks/                           ← シンプルな bash フック
-│   └── banner.sh                    ←   SessionStart で名前表示
+│   └── session-start.sh             ←   SessionStart: 名前表示 + 起動時 cwd 記録 + CLAUDE.md 注入
 ├── commands/
 │   ├── restore.md                   ← /jtfrom9-cc-workflow:restore <taskId> でプランを復元
 │   ├── checkpoint.md                ← /jtfrom9-cc-workflow:checkpoint で議論を保存
@@ -113,16 +114,15 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 
 ## 機能
 
-### banner: 起動確認バナー + 起動時 cwd の記録
+### session-start: 起動確認バナー + 起動時 cwd 記録 + CLAUDE.md 注入
 
-`SessionStart` フックで以下 2 つを行う:
+`SessionStart` フックで以下 3 つを行う:
 
 1. `systemMessage` に `jtfrom9-cc-workflow` を表示（プラグインが有効化されているか起動時確認用）
-2. **`pwd` を `state/<sid>/cwd` に書き込む**
+2. **`pwd` を `state/<sid>/cwd` に書き込む** — 後段の `checkpoint` / `relocate_plan` / `summarise` 等は **claude を起動した cwd** を `project_root` として固定できる。セッション中に Claude Code の cwd が `fondi-workspace/fondi-app/` のようなサブディレクトリにシフトしても、project_name が `fondi-app` に化けることはない
+3. **プラグイン同梱の [`CLAUDE.md`](CLAUDE.md) を読んで `additionalContext` として注入** — プラグイン仕様上、プラグインルートの `CLAUDE.md` は Claude Code が自動ロードしないため、ここで自前で流し込む。対話ルール（疑問への優先回答、TDD、ブランチ確認 など）が起動毎に Claude のコンテキストに乗る
 
-(2) があるおかげで、後段の `checkpoint` / `relocate_plan` / `summarise` 等は **claude を起動した cwd** を `project_root` として固定できる。セッション中に Claude Code の cwd が `fondi-workspace/fondi-app/` のようなサブディレクトリにシフトしても、project_name が `fondi-app` に化けることはない。
-
-スクリプト: [`hooks/banner.sh`](hooks/banner.sh)
+スクリプト: [`hooks/session-start.sh`](hooks/session-start.sh)
 
 ### 自動 checkpoint: Stop でトークン使用量を見て自動採取
 
