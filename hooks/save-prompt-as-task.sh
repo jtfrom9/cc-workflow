@@ -169,7 +169,7 @@ status: pending
 TASKEOF
 
   # summary.md は plan.md が長いときだけ生成
-  SUMMARY_THRESHOLD_LINES="${JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES:-200}"
+  SUMMARY_THRESHOLD_LINES="${JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES:-50}"
   LINES=$(wc -l < "$TASK_DIR/plan.md" | tr -d ' ')
   if [ "$LINES" -gt "$SUMMARY_THRESHOLD_LINES" ]; then
     echo "_(要約を生成中…)_" > "$TASK_DIR/summary.md"

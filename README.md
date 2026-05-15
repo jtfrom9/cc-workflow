@@ -234,7 +234,7 @@ status: pending
 |---|---|---|
 | `JTFROM9_CC_WORKFLOW_SOURCE_PLANS` | `$HOME/.claude/plans` | 移動元（`plansDirectory` を変更している場合に合わせる） |
 | `JTFROM9_CC_WORKFLOW_PAUSE_AFTER_PLAN` | `1` | `1` で承認後に停止、`0` でそのまま実装に進む |
-| `JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES` | `200` | `plan.md` がこの行数を超えたら `claude -p` で要約生成 |
+| `JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES` | `50` | `plan.md` がこの行数を超えたら `claude -p` で要約生成 |
 
 #### 制約
 
