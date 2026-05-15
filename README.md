@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-D97757)](https://claude.com/code)
 
-セッション管理を意識しない独自ワークフローを実現するための、Claude Code の設定プラグイン。対話の自動保存、理解負債やコンテキストスイッチの認知負荷を下げる要約の自動生成、対話履歴の管理を行う。
+Claude Code の作業セッションを task として記録し、あとから復元・要約しやすくする設定プラグイン。承認済みプランの整理、自動 checkpoint、会話履歴を使った要約、同梱 `CLAUDE.md` のセッション注入を行う。
 
 ## 動作要件
 
@@ -17,30 +17,30 @@
 ### このセッションだけで試す
 
 ```sh
-git clone https://github.com/<owner>/cc-workflow.git <plugin-root>
+git clone https://github.com/jtfrom9/cc-workflow.git <plugin-root>
 claude --plugin-dir <plugin-root>
 ```
 
-### マーケットプレース経由で永続インストール
+### 永続インストール
+
+`.claude-plugin/marketplace.json` を用意した上で、このリポジトリをローカル marketplace として登録する。
 
 ```sh
 claude plugin marketplace add <plugin-root>
 claude plugin install cc-workflow
 ```
 
-（`.claude-plugin/marketplace.json` を別途用意した上で）
-
 ## 機能
 
 ### 自動 checkpoint
 
-Claude の応答が終わるたびに、それまでの会話を新しい task として `~/.cc-workflow/tasks/<project>/<taskId>/` に保存する。`Stop` フックでセッショントランスクリプトのトークン消費を見て、前回採取時より閾値（既定 30%）以上トークンが増えていれば発火する。
+Claude の応答が終わるたびに、それまでの会話を参照できる checkpoint task を `~/.cc-workflow/tasks/<project>/<taskId>/` に作成する。`Stop` フックでセッショントランスクリプトのトークン消費を見て、同プロジェクトの直前 task より閾値（既定 30%）以上トークンが増えていれば発火する。
 
 保存されるファイル（詳細は [`docs/saved-files.md`](docs/saved-files.md) 参照）:
 
 - `task.md`: frontmatter にトリガ情報・前回タスク参照・トークン数
 - `plan.md`: 採取時のメタ情報のみ。会話本文は転記しない
-- `summary.md`: 長ければ生成。後から `/cc-workflow:summarise` で再生成も可
+- `summary.md`: 自動 checkpoint の採取時には生成しない。後から `/cc-workflow:summarise` で会話履歴を抜き出して生成する
 
 | 環境変数 | デフォルト | 意味 |
 |---|---|---|
@@ -50,7 +50,7 @@ Claude の応答が終わるたびに、それまでの会話を新しい task �
 
 ### プランファイルの保管場所変更と自動要約
 
-プランモードで承認されたプランは、通常 Claude Code が `~/.claude/plans/` にフラットに書き出す。`PostToolUse(ExitPlanMode)` フックでこれを `~/.cc-workflow/tasks/<project>/<taskId>/` に移し替える。デフォルトでは承認後に一旦ターン停止し、ユーザにプラン確認の猶予を作る。
+プランモードで承認されたプランは、通常 Claude Code が `~/.claude/plans/` にフラットに書き出す。`PostToolUse(ExitPlanMode)` フックでこれを `~/.cc-workflow/tasks/<project>/<taskId>/` に移し替える。デフォルトでは承認後すぐに実装へ進まず、いったん応答を止める。
 
 保存されるファイル（詳細は [`docs/saved-files.md`](docs/saved-files.md) 参照）:
 
@@ -63,17 +63,17 @@ Claude の応答が終わるたびに、それまでの会話を新しい task �
 | `CC_WORKFLOW_PAUSE_AFTER_PLAN` | `1` | `0` で「承認後にターン停止」を無効化 |
 | `CC_WORKFLOW_SUMMARY_THRESHOLD_LINES` | `50` | `plan.md` がこれより長ければ `summary.md` を生成 |
 | `CC_WORKFLOW_SOURCE_PLANS` | `~/.claude/plans` | 移動元。Claude Code の `plansDirectory` を変更している場合に合わせる |
-| `CC_WORKFLOW_CLAUDE_CMD` | `claude` | summary 生成で叩く `claude` バイナリの上書き |
+| `CC_WORKFLOW_CLAUDE_CMD` | `claude` | summary 生成で実行する `claude` バイナリの上書き |
 
 ### CLAUDE.md の注入
 
-`SessionStart` フックでプラグイン同梱の [`CLAUDE.md`](CLAUDE.md)（対話ルール、コメント言語、ブランチ確認、TDD 等）を `additionalContext` として注入する。Claude Code 仕様上、プラグインルートの `CLAUDE.md` は自動ロードされないので、フックで自前で流し込む方式。
+`SessionStart` フックでプラグイン同梱の [`CLAUDE.md`](CLAUDE.md) を `additionalContext` として注入する。質問への回答順、指摘への対応、コメント言語、ブランチ確認、TDD などの作業ルールが毎セッション適用される。
 
 ### カスタムコマンド
 
 #### `/cc-workflow:checkpoint`
 
-これまでの会話を詳細に拾って checkpoint task として明示的に保存する。前回 checkpoint 以降の差分を対象にするインクリメンタル方式。タイトルは Claude が会話内容に合わせて自分で決めるので、ユーザは引数を渡さない。
+これまでの会話を詳細に拾って checkpoint task として明示的に保存する。同プロジェクトの直前 task 以降の差分を対象にするインクリメンタル方式。タイトルは Claude が会話内容に合わせて自分で決めるので、ユーザは引数を渡さない。
 
 #### `/cc-workflow:summarise`
 
@@ -90,6 +90,10 @@ Claude の応答が終わるたびに、それまでの会話を新しい task �
 ### ステータスライン
 
 ステータスラインに使用量を表示するなどの修飾を加える。
+
+## 保存されるデータ
+
+このプラグインは `~/.cc-workflow/` に task 情報を保存する。`plan.md` には承認済みプランや手動 checkpoint の詳細、`/cc-workflow:summarise` 実行後の自動 checkpoint には会話抜粋が入ることがある。保存内容と削除方針は [保存ファイルの中身](docs/saved-files.md) と [ストレージレイアウト](docs/storage-layout.md) を参照。
 
 ## ドキュメント
 
