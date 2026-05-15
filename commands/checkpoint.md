@@ -26,7 +26,7 @@ allowed-tools: Bash, Read, Write
 - `prev_checkpoint_created`
 
 ```sh
-"${CLAUDE_PLUGIN_ROOT}"/scripts/init-checkpoint.sh "$ARGUMENTS"
+python3 "${CLAUDE_PLUGIN_ROOT}/python/init_checkpoint.py" "$ARGUMENTS"
 ```
 
 ### 2. 前回チェックポイント以降を特定する

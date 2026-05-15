@@ -11,7 +11,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/banner.sh"
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/banner.sh"]
           }
         ]
       }
@@ -21,11 +22,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/suggest-rename.sh"
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/suggest-rename.sh"]
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/save-prompt-as-task.sh"
+            "command": "python3",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/python/save_prompt_as_task.py"]
           }
         ]
       }
@@ -36,7 +39,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/relocate-plan.sh"
+            "command": "python3",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/python/relocate_plan.py"]
           }
         ]
       }

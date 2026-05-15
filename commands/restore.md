@@ -9,4 +9,4 @@ taskId `$ARGUMENTS` の保存済みプランを復元します。以下にその
 
 ---
 
-!`"${CLAUDE_PLUGIN_ROOT}"/scripts/restore-task.sh "$ARGUMENTS"`
+!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/restore-task.sh" "$ARGUMENTS"`

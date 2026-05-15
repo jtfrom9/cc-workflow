@@ -39,19 +39,22 @@ claude plugin install jtfrom9-cc-workflow
 <repo>/                              ← プラグインルート (= ${CLAUDE_PLUGIN_ROOT})
 ├── .claude-plugin/
 │   └── plugin.json                  ← プラグインマニフェスト（フック宣言などはここ）
-├── hooks/
-│   ├── banner.sh                    ← SessionStart で名前表示
-│   ├── suggest-rename.sh            ← UserPromptSubmit で /rename 提案
-│   ├── save-prompt-as-task.sh       ← UserPromptSubmit で長めの指示を task として保存
-│   └── relocate-plan.sh             ← PostToolUse(ExitPlanMode) でプランを task に整理
+├── hooks/                           ← シンプルな bash フック
+│   ├── banner.sh                    ←   SessionStart で名前表示
+│   └── suggest-rename.sh            ←   UserPromptSubmit で /rename 提案
 ├── commands/
 │   ├── restore.md                   ← /jtfrom9-cc-workflow:restore <taskId> でプランを復元
 │   ├── checkpoint.md                ← /jtfrom9-cc-workflow:checkpoint で議論を保存
 │   └── tasks.md                     ← /jtfrom9-cc-workflow:tasks で task 一覧表示
-├── scripts/
-│   ├── restore-task.sh              ← restore コマンドのヘルパー
-│   ├── init-checkpoint.sh           ← checkpoint コマンドのヘルパー
-│   └── list-tasks.sh                ← tasks コマンドのヘルパー
+├── scripts/                         ← シンプルな bash ヘルパー (commands から呼ばれる)
+│   ├── restore-task.sh              ←   restore コマンドのヘルパー
+│   └── list-tasks.sh                ←   tasks コマンドのヘルパー
+├── python/                          ← 複雑なロジックは Python (UTF-8 / 非同期 / 状態管理)
+│   ├── _common.py                   ←   共通ユーティリティ
+│   ├── _summarize_worker.py         ←   バックグラウンド要約ワーカー
+│   ├── save_prompt_as_task.py       ←   UserPromptSubmit: 分類器付きの task 採取
+│   ├── relocate_plan.py             ←   PostToolUse(ExitPlanMode): plan ファイルを task 化
+│   └── init_checkpoint.py           ←   checkpoint コマンドのヘルパー
 └── README.md
 ```
 
@@ -96,8 +99,9 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 
 `source:` フィールドで、task がどのフックから作られたかが分かる:
 
-- `source: plan` — プランモードで承認された ExitPlanMode の plan を元に作られた (`relocate-plan.sh`)
-- `source: prompt` — プランモード外でユーザが直接送信した指示文から作られた (`save-prompt-as-task.sh`)
+- `source: plan` — プランモードで承認された ExitPlanMode の plan を元に作られた (`python/relocate_plan.py`)
+- `source: prompt` — プランモード外でユーザが直接送信した指示文から作られた (`python/save_prompt_as_task.py`)
+- `source: checkpoint` — `/jtfrom9-cc-workflow:checkpoint` から手動で作られた (`python/init_checkpoint.py` + Claude が要約を Write)
 
 同じセッションで両方発火すると、論理上 1 つのタスクに対して task フォルダが 2 つ並ぶことがある。重複は許容する設計で、不要な方は手動で削除する。
 
@@ -141,7 +145,7 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 
 ```
 UserPromptSubmit
- → save-prompt-as-task.sh
+ → python/save_prompt_as_task.py
      早期 exit:
        - スラッシュコマンド (/ で始まる) → スキップ
        - MIN_LEN_FOR_CLASSIFY 未満の文字数 → スキップ
@@ -154,7 +158,7 @@ UserPromptSubmit
 
 `task.md` の `source: prompt` で他のタスクと区別できる。判定結果は `classifier_decision` フィールドにも残る。
 
-スクリプト: [`hooks/save-prompt-as-task.sh`](hooks/save-prompt-as-task.sh)
+スクリプト: [`python/save_prompt_as_task.py`](python/save_prompt_as_task.py)
 
 | 変数 | デフォルト | 意味 |
 |---|---|---|
@@ -192,12 +196,12 @@ UserPromptSubmit
 承認
  → ExitPlanMode 実行: ~/.claude/plans/<slug>.md が書かれる
  → PostToolUse フック発火
- → relocate-plan.sh:
+ → python/relocate_plan.py:
      taskId 採番
      <slug>.md → ~/.jtfrom9-cc-workflow/tasks/<project>/<taskId>/plan.md
      task.md (frontmatter + 自由記述欄) を生成
      summary.md を生成 (長いプランは裏で claude -p、短ければ静的文言)
- → relocate-plan.sh: continue:false でターン停止 (デフォルト時)
+ → python/relocate_plan.py: continue:false でターン停止 (デフォルト時)
    → ユーザに制御が戻る。プランファイルを確認 / 編集できる
  → ユーザが「進めて」「実装して」等と指示
  → Claude が実装に進む
@@ -206,7 +210,7 @@ UserPromptSubmit
 - プロジェクト名: `git rev-parse --show-toplevel` のベース名、git 外なら `$PWD` のベース名
 - 「直近に書かれた .md」判定: `plansDirectory` 内で 5 分以内に変更された `*.md` の最新
 
-スクリプト: [`hooks/relocate-plan.sh`](hooks/relocate-plan.sh)
+スクリプト: [`python/relocate_plan.py`](python/relocate_plan.py)
 
 #### task.md の中身
 
@@ -251,7 +255,7 @@ status: pending
 
 挙動:
 
-- Bash で [`scripts/init-checkpoint.sh`](scripts/init-checkpoint.sh) を呼び、task ディレクトリと採番済みパス、加えて **同一セッション内の直前 checkpoint 情報** を取得する
+- Python で [`python/init_checkpoint.py`](python/init_checkpoint.py) を呼び、task ディレクトリと採番済みパス、加えて **同一セッション内の直前 checkpoint 情報** を取得する
 - 直前 checkpoint がある場合は、Claude がその `plan.md` を Read して内容を把握し、**「以降 → 今」までの差分を詳細に** 新しい `plan.md` に書き出す
 - 直前 checkpoint が無い場合は、セッション最初から現時点までの全内容を対象に書き出す
 - 続けて Write ツールで `task.md` を書く（frontmatter に `prev_checkpoint_taskid` が入って連鎖する）
@@ -263,7 +267,7 @@ status: pending
 
 実体:
 - コマンド: [`commands/checkpoint.md`](commands/checkpoint.md)
-- ヘルパー: [`scripts/init-checkpoint.sh`](scripts/init-checkpoint.sh)
+- ヘルパー: [`python/init_checkpoint.py`](python/init_checkpoint.py)
 
 ### `/jtfrom9-cc-workflow:tasks`: task 一覧表示
 
@@ -304,8 +308,12 @@ status: pending
 
 ## 動作要件
 
-- macOS / Linux (bash, jq)
 - Claude Code CLI
+- **Python 3.9+**: 複雑なフック (`python/save_prompt_as_task.py` / `relocate_plan.py` / `init_checkpoint.py`) は Python。標準ライブラリのみ依存
+- **bash**: シンプルなフック (`hooks/*.sh`) と一覧／復元ヘルパー (`scripts/*.sh`) は bash。`jq` も依存
+- 動作環境別:
+  - **macOS / Linux**: bash・python3 ともに通常標準で入っている
+  - **Windows**: Git for Windows (Git Bash) + Python 3 をインストールしておく必要あり。`plugin.json` のフックは `command: "bash"` / `command: "python3"` の args 形式で起動するため、シェル種別の違いを吸収できる
 
 ## マニフェストの検証
 
