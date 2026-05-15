@@ -1,0 +1,30 @@
+{
+  "name": "jtfrom9-cc-workflow",
+  "description": "jtfrom9's Claude Code workflow helpers — small hooks that help avoid session-management mistakes",
+  "version": "0.1.0",
+  "author": {
+    "name": "jtfrom9"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/banner.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/suggest-rename.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
