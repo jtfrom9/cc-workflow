@@ -43,6 +43,10 @@ claude plugin install jtfrom9-cc-workflow
 │   ├── banner.sh                    ← SessionStart で名前表示
 │   ├── suggest-rename.sh            ← UserPromptSubmit で /rename 提案
 │   └── relocate-plan.sh             ← PostToolUse(ExitPlanMode) でプランをプロジェクト毎に整理
+├── commands/
+│   └── jtfrom9-restore.md           ← /jtfrom9-restore <taskId> でプランを復元
+├── scripts/
+│   └── restore-task.sh              ← /jtfrom9-restore のヘルパー
 └── README.md
 ```
 
@@ -168,6 +172,25 @@ status: pending
 - 同一セッション内で複数プランを短時間に連続で承認した場合、競合する可能性がある。
 - 要約生成 (`claude -p`) はバックグラウンドで走り、終わるとファイルが上書きされる。失敗するとプレースホルダのまま残ることがある。
 - ユーザが `plansDirectory` を別のディレクトリに設定している場合は `JTFROM9_CC_WORKFLOW_SOURCE_PLANS` でそちらを指定する。
+
+## カスタムコマンド
+
+### `/jtfrom9-restore <taskId>`: 保存済みプランの復元
+
+引数の taskId に対応する保存済みプランをコンテキストに読み込み、その続きから作業を再開するためのスラッシュコマンド。
+
+挙動:
+- 現在のプロジェクト名（git ルート or cwd のベース名）を判定
+- `~/.jtfrom9-cc-workflow/plans/<project>/<taskId>/` 配下の `task.md` / `plan.md` / `summary.md` を読み出してプロンプトに展開
+- Claude はその内容を踏まえて、ユーザの次の指示を待つ
+
+エラー時の挙動:
+- 引数なし → 使い方を返し、当該プロジェクトの taskId 一覧を表示
+- 該当 taskId が見つからない → エラー + 一覧を表示
+
+実体:
+- コマンド: [`commands/jtfrom9-restore.md`](commands/jtfrom9-restore.md)
+- ヘルパー: [`scripts/restore-task.sh`](scripts/restore-task.sh)
 
 ## 設計方針
 
