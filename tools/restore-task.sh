@@ -5,13 +5,16 @@
 # プロジェクト名を判定して該当 taskId フォルダ配下の
 # plan.md / task.md / summary.md を 1 つの出力にまとめて返す。
 #
-# 引数: $1 = taskId
+# 引数: $1 = taskId (full または short)
+#   - full:  0001-260516-foo-bar
+#   - short: 0001-260516           (index + 日付の prefix。同プロジェクト内で
+#                                   一意に解決できれば full に変換して使う)
 # 出力: stdout に Markdown 形式でまとめる (失敗時はエラーメッセージ + 候補一覧)
 
 set -uo pipefail
 
 DATA_DIR="${CC_WORKFLOW_DIR:-$HOME/.cc-workflow}"
-TASKID="${1:-}"
+ARG="${1:-}"
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT=$(python3 "$SCRIPT_DIR/project-info.py")
@@ -30,20 +33,23 @@ list_available() {
   fi
 }
 
-if [ -z "$TASKID" ]; then
+if [ -z "$ARG" ]; then
   echo "**エラー: taskId が指定されていません。**"
   echo
-  echo "使い方: コマンドの引数に taskId を 1 つ指定してください。"
+  echo "使い方: コマンドの引数に taskId (full または short \`NNNN-YYMMDD\`) を 1 つ指定してください。"
+  list_available
+  exit 0
+fi
+
+# full taskId 解決 (short 形式は project_tasks 配下を glob で一意マッチさせる)
+TASKID=$(python3 "$SCRIPT_DIR/resolve-taskid.py" "$ARG" 2>/dev/null || true)
+if [ -z "$TASKID" ]; then
+  echo "**エラー: 引数 \`$ARG\` がプロジェクト \`$PROJECT\` のタスクに解決できません。**"
   list_available
   exit 0
 fi
 
 TASK_DIR="$PROJECT_TASKS/$TASKID"
-if [ ! -d "$TASK_DIR" ]; then
-  echo "**エラー: taskId \`$TASKID\` がプロジェクト \`$PROJECT\` に見つかりません。**"
-  list_available
-  exit 0
-fi
 
 echo "## taskId: \`$TASKID\` (project: \`$PROJECT\`)"
 echo

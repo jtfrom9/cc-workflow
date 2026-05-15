@@ -81,11 +81,11 @@ Claude の応答が終わるたびに、それまでの会話を参照できる 
 
 #### `/cc-workflow:restore <taskId>`
 
-指定 taskId の `task.md` / `plan.md` / `summary.md` をコンテキストに展開し、続きから作業を再開する。`restore` した task が「開いている task」として記録され、その後の `/summarise` の対象になる。
+指定 taskId の `task.md` / `plan.md` / `summary.md` をコンテキストに展開し、続きから作業を再開する。引数には **full taskId**（`0001-260516-プラン設計`）でも **shortId**（`0001-260516`）でも渡せる。shortId のときは同プロジェクト内で一意にマッチしたディレクトリに解決する。`restore` した task が「開いている task」として記録され、その後の `/summarise` の対象になる。
 
 #### `/cc-workflow:tasks`
 
-現在のプロジェクトの task 一覧（taskId、作成日時、`source`、`status`）を Markdown テーブルで表示する。
+現在のプロジェクトの task 一覧を Markdown テーブルで表示する。列は `shortId` / `name` / `created` / `source` / `status`。`shortId` を `/cc-workflow:restore` の引数にそのまま渡せる。
 
 ### ステータスライン
 

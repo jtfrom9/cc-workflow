@@ -2,11 +2,14 @@
 """Record a taskId as the currently-open task for the current session.
 
 Usage:
-    mark_task_open.py <taskId>
+    mark_task_open.py <taskId-or-shortId>
 
-Designed to be invoked from slash commands (e.g. /restore) where the
-session id isn't directly available; falls back to the mtime-heuristic
-session detection in _common.
+Accepts either the full taskId (``0001-260516-foo-bar``) or the shortId
+(``0001-260516``). The shortId is resolved against the current project's
+task directory; if exactly one directory matches, that full taskId is
+stored. Designed to be invoked from slash commands (e.g. /restore) where
+the session id isn't directly available; falls back to the
+mtime-heuristic session detection in _common.
 """
 
 from __future__ import annotations
@@ -21,8 +24,13 @@ import _common  # noqa: E402
 def main() -> int:
     if len(sys.argv) < 2 or not sys.argv[1].strip():
         return 0
-    taskid = sys.argv[1].strip()
-    _common.mark_task_open(taskid)
+    arg = sys.argv[1].strip()
+    project, _root = _common.get_project_info()
+    full = _common.resolve_taskid(project, arg)
+    if not full:
+        # Argument didn't resolve to a known task; nothing to mark.
+        return 0
+    _common.mark_task_open(full)
     return 0
 
 

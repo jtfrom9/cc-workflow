@@ -28,15 +28,18 @@ extract_field() {
     | sed -E "s/^$2:[[:space:]]*//;s/^\"//;s/\"$//"
 }
 
-echo "| taskId | created | source | status |"
-echo "|---|---|---|---|"
+echo "| shortId | name | created | source | status |"
+echo "|---|---|---|---|---|"
 
 for d in "$PROJECT_TASKS"/*/; do
   [ -d "$d" ] || continue
   TID=$(basename "$d")
+  # full taskId = "NNNN-YYMMDD-name" → shortId は先頭 11 文字、name はそれ以降 (`-` を 1 文字飛ばす)
+  SHORT="${TID:0:11}"
+  NAME="${TID:12}"
   TM="$d/task.md"
   CREATED=$(extract_field "$TM" "created_at")
   SOURCE=$(extract_field "$TM" "source")
   STATUS=$(extract_field "$TM" "status")
-  printf '| `%s` | %s | %s | %s |\n' "$TID" "${CREATED:--}" "${SOURCE:--}" "${STATUS:--}"
+  printf '| `%s` | %s | %s | %s | %s |\n' "$SHORT" "${NAME:--}" "${CREATED:--}" "${SOURCE:--}" "${STATUS:--}"
 done

@@ -27,17 +27,30 @@
 
 ## taskId の形式
 
+タスクディレクトリ名は **full taskId** で、以下の構造を持つ:
+
 ```
-<index>-<yymmdd>-<original-name>
+<index>-<yymmdd>-<name>
+└── shortId ──┘
+└────── full taskId ──────┘
 ```
 
 | 部分 | 例 | 説明 |
 |---|---|---|
 | `<index>` | `0042` | プロジェクト内のローカル通し番号。4 桁 0 埋め |
 | `<yymmdd>` | `260516` | 採取日（ローカルタイム） |
-| `<original-name>` | `pure-pondering-crystal` | プラン本文の H1 から抽出した slug、または Claude が決めたタイトル、または `auto-HHMMSS`（自動 checkpoint の場合） |
+| `<name>` | `pure-pondering-crystal` | プラン本文の H1 から抽出した slug、または Claude が決めたタイトル、または `auto-HHMMSS`（自動 checkpoint の場合） |
 
-`<original-name>` は UTF-8 セーフに slug 化されるので、日本語タイトルも `ユーザ認証機能の追加` のようにそのまま入る。`/` `\` `:` `*` `?` `"` `<>` `|` などパス禁則文字と ASCII 空白は `-` に置換される。
+### full / short
+
+| 呼び方 | 範囲 | 例 |
+|---|---|---|
+| **full taskId** | 上記 3 部品すべて。ディレクトリ名そのもの | `0042-260516-pure-pondering-crystal` |
+| **shortId** | `<index>-<yymmdd>` の 11 文字固定 prefix | `0042-260516` |
+
+shortId は `<index>` が同プロジェクト内で一意に振られるため、shortId だけで一意にタスクを特定できる。`/cc-workflow:tasks` は表に `shortId` と `name` を別列で表示し、`/cc-workflow:restore` は full / short どちらでも引数として受け取れる（shortId のときは `tools/resolve-taskid.py` がプロジェクト配下を glob して full に変換する）。
+
+`<name>` は UTF-8 セーフに slug 化されるので、日本語タイトルも `ユーザ認証機能の追加` のようにそのまま入る。`/` `\` `:` `*` `?` `"` `<>` `|` などパス禁則文字と ASCII 空白は `-` に置換される。
 
 ## index の採番
 

@@ -217,6 +217,53 @@ def make_taskid(index: int, slug: str, today: datetime | None = None) -> str:
     return f"{index:04d}-{today.strftime('%y%m%d')}-{slug}"
 
 
+# A taskId always starts with ``NNNN-YYMMDD`` (4 digits, dash, 6 digits) =
+# 11 characters; the "name" suffix follows after another dash.
+_SHORT_TASKID_RE = re.compile(r"^(\d{4}-\d{6})(?:-(.+))?$")
+
+
+def split_taskid(taskid: str) -> tuple[str, str]:
+    """Split a full taskId into ``(shortId, name)``.
+
+    Example:
+        >>> split_taskid("0001-260516-foo-bar")
+        ("0001-260516", "foo-bar")
+    """
+    m = _SHORT_TASKID_RE.match(taskid)
+    if not m:
+        return (taskid, "")
+    return (m.group(1), m.group(2) or "")
+
+
+def resolve_taskid(project: str, arg: str) -> str | None:
+    """Resolve a user-supplied taskId argument to a full taskId.
+
+    Accepts either:
+      - the full taskId (``0001-260516-foo-bar``) — returned as-is if the
+        directory exists,
+      - the shortId (``0001-260516``) — resolved by globbing
+        ``tasks/<project>/<shortId>-*`` for a unique match.
+
+    Returns ``None`` if no directory matches, or if a shortId matches more
+    than one directory (which should not happen in practice since the
+    (index, date) pair is unique per project).
+    """
+    if not arg:
+        return None
+    project_tasks = project_tasks_dir(project)
+    if not project_tasks.is_dir():
+        return None
+    if (project_tasks / arg).is_dir():
+        return arg
+    # Try as shortId
+    matches = sorted(
+        p for p in project_tasks.glob(f"{arg}-*") if p.is_dir()
+    )
+    if len(matches) == 1:
+        return matches[0].name
+    return None
+
+
 # ----------------------------------------------------------------------
 # Frontmatter (minimal)
 # ----------------------------------------------------------------------
