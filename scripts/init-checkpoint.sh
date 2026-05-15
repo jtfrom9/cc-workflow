@@ -2,12 +2,13 @@
 # jtfrom9-cc-workflow/scripts/init-checkpoint.sh
 #
 # /jtfrom9-cc-workflow:checkpoint から呼ばれる。
-# 新しい checkpoint task のディレクトリを掘って、各種 path を key=value で出力する。
-# Claude (slash command 側) は出力をパースして、plan.md / task.md を Write ツールで書く。
+# 新しい checkpoint task のディレクトリを掘って、各種 path と
+# 「直前の checkpoint (同一セッション内)」の情報を key=value で出力する。
 #
-# 引数: $1 = 任意のスラグ用文字列 (省略時は "checkpoint")
-# 出力: stdout に key=value 形式 (taskId, task_dir, plan_path, task_md_path, project,
-#       project_root, created_at)
+# Claude (slash command 側) は出力をパースし、prev_checkpoint_plan が
+# 非空ならその plan.md を読んで「前回 checkpoint 以降」を抽出する。
+#
+# 引数: $1 = 任意のスラグ文字列 (省略時 "checkpoint")
 
 set -uo pipefail
 
@@ -22,7 +23,39 @@ else
 fi
 
 PROJECT_TASKS="$DATA_DIR/tasks/$PROJECT"
-mkdir -p "$PROJECT_TASKS"
+STATE_BASE="$DATA_DIR/state"
+mkdir -p "$PROJECT_TASKS" "$STATE_BASE"
+
+# 現セッション ID の推定:
+#   UserPromptSubmit フック群が state/<sid>/ を毎ターン触るため、
+#   mtime が最も新しいサブディレクトリ名を「今のセッション」とみなす。
+CURRENT_SID=""
+if [ -d "$STATE_BASE" ]; then
+  CANDIDATE=$(ls -1t "$STATE_BASE" 2>/dev/null | head -n 1)
+  if [ -n "$CANDIDATE" ] && [ -d "$STATE_BASE/$CANDIDATE" ]; then
+    CURRENT_SID="$CANDIDATE"
+  fi
+fi
+
+# 直前 checkpoint の参照 (同セッション内)
+PREV_CHECKPOINT_TASKID=""
+PREV_CHECKPOINT_PLAN=""
+PREV_CHECKPOINT_CREATED=""
+if [ -n "$CURRENT_SID" ]; then
+  PREV_FILE="$STATE_BASE/$CURRENT_SID/last_checkpoint_taskid"
+  if [ -f "$PREV_FILE" ]; then
+    CAND=$(cat "$PREV_FILE" 2>/dev/null)
+    if [ -n "$CAND" ] && [ -d "$PROJECT_TASKS/$CAND" ]; then
+      PREV_CHECKPOINT_TASKID="$CAND"
+      PREV_CHECKPOINT_PLAN="$PROJECT_TASKS/$CAND/plan.md"
+      if [ -f "$PROJECT_TASKS/$CAND/task.md" ]; then
+        PREV_CHECKPOINT_CREATED=$(grep '^created_at:' "$PROJECT_TASKS/$CAND/task.md" 2>/dev/null \
+          | head -1 \
+          | sed -E 's/^created_at:[[:space:]]*//;s/^"//;s/"$//')
+      fi
+    fi
+  fi
+fi
 
 # スラグ化 (UTF-8 セーフに sed をバイトモードで動かす)
 ORIG_NAME=$(
@@ -54,6 +87,12 @@ TASK_ID="${INDEX_PADDED}-${YMD}-${ORIG_NAME}"
 TASK_DIR="$PROJECT_TASKS/$TASK_ID"
 mkdir -p "$TASK_DIR"
 
+# 新 taskId を「このセッションの直近 checkpoint」として記録
+if [ -n "$CURRENT_SID" ]; then
+  mkdir -p "$STATE_BASE/$CURRENT_SID"
+  printf '%s\n' "$TASK_ID" > "$STATE_BASE/$CURRENT_SID/last_checkpoint_taskid"
+fi
+
 cat <<EOF
 taskId=$TASK_ID
 task_dir=$TASK_DIR
@@ -62,4 +101,8 @@ task_md_path=$TASK_DIR/task.md
 project=$PROJECT
 project_root=$PROJECT_ROOT
 created_at=$(date +%Y-%m-%dT%H:%M:%S%z)
+session_id=$CURRENT_SID
+prev_checkpoint_taskid=$PREV_CHECKPOINT_TASKID
+prev_checkpoint_plan=$PREV_CHECKPOINT_PLAN
+prev_checkpoint_created=$PREV_CHECKPOINT_CREATED
 EOF

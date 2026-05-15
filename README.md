@@ -245,14 +245,21 @@ status: pending
 
 ## カスタムコマンド
 
-### `/jtfrom9-cc-workflow:checkpoint [スラグ]`: 明示的に議論を保存
+### `/jtfrom9-cc-workflow:checkpoint [スラグ]`: 明示的に議論を保存（インクリメンタル）
 
-これまでの会話を Claude に要約させ、`source: checkpoint` の task として手動保存するコマンド。長くなったセッションの途中で「ここまでの結論を残してから続きをやる」のような区切りに使う。
+これまでの会話を Claude に **詳細に**（甘くまとめずに）記録させ、`source: checkpoint` の task として手動保存するコマンド。長くなったセッションの途中で「ここまでを残してから続きをやる」のような区切りに使う。
 
 挙動:
-- Bash で [`scripts/init-checkpoint.sh`](scripts/init-checkpoint.sh) を呼び出して task ディレクトリと採番済みパスを準備
-- Claude が会話の要約を生成し、Write ツールで `plan.md` / `task.md` に書き込む
-- 引数があれば taskId のスラグ部分に使う (省略時は "checkpoint")
+
+- Bash で [`scripts/init-checkpoint.sh`](scripts/init-checkpoint.sh) を呼び、task ディレクトリと採番済みパス、加えて **同一セッション内の直前 checkpoint 情報** を取得する
+- 直前 checkpoint がある場合は、Claude がその `plan.md` を Read して内容を把握し、**「以降 → 今」までの差分を詳細に** 新しい `plan.md` に書き出す
+- 直前 checkpoint が無い場合は、セッション最初から現時点までの全内容を対象に書き出す
+- 続けて Write ツールで `task.md` を書く（frontmatter に `prev_checkpoint_taskid` が入って連鎖する）
+- 引数があれば taskId のスラグ部分にも反映 (省略時 "checkpoint")
+
+「詳細に」とは具体的に、採用方針・却下案・触ったファイル・コミット・走らせたコマンド・未解決の課題・トレードオフ・参考情報まで漏らさず残すこと。短くまとめようとせず、**後でこの plan.md だけ読めば作業を完全に再開できる** 情報量を目指す。
+
+セッション検出: `~/.jtfrom9-cc-workflow/state/<sid>/` の中で mtime が一番新しいサブディレクトリを「現在のセッション」とみなす（UserPromptSubmit フック群が毎ターン触っているため信頼性は実用十分）。
 
 実体:
 - コマンド: [`commands/checkpoint.md`](commands/checkpoint.md)
