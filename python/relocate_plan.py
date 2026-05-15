@@ -146,6 +146,9 @@ def main() -> int:
     )
     (task_dir / "task.md").write_text(fm, encoding="utf-8")
 
+    if sid:
+        _common.mark_task_open(task_id, session_id=sid)
+
     summary_launched = maybe_spawn_summary(task_dir)
 
     if PAUSE_AFTER_PLAN:

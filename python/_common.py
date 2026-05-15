@@ -242,6 +242,43 @@ def now_iso() -> str:
 
 
 # ----------------------------------------------------------------------
+# "Currently open" task tracking
+# ----------------------------------------------------------------------
+
+def open_task_marker(session_id: str) -> Path:
+    return state_dir_for(session_id) / "open_task_id"
+
+
+def mark_task_open(taskid: str, session_id: str | None = None) -> bool:
+    """Record ``taskid`` as the currently-open task for this session.
+
+    If ``session_id`` is not provided, falls back to ``detect_current_session_id()``.
+    Returns True on success, False when no session id could be determined.
+    """
+    sid = session_id or detect_current_session_id()
+    if not sid:
+        return False
+    sdir = state_dir_for(sid)
+    sdir.mkdir(parents=True, exist_ok=True)
+    open_task_marker(sid).write_text(f"{taskid}\n", encoding="utf-8")
+    return True
+
+
+def read_open_task(session_id: str | None = None) -> str:
+    """Return the currently-open taskId for ``session_id`` (auto-detect when None)."""
+    sid = session_id or detect_current_session_id()
+    if not sid:
+        return ""
+    marker = open_task_marker(sid)
+    if not marker.is_file():
+        return ""
+    try:
+        return marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+# ----------------------------------------------------------------------
 # Cross-platform detached subprocess (POSIX + Windows)
 # ----------------------------------------------------------------------
 

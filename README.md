@@ -45,13 +45,17 @@ claude plugin install jtfrom9-cc-workflow
 ├── commands/
 │   ├── restore.md                   ← /jtfrom9-cc-workflow:restore <taskId> でプランを復元
 │   ├── checkpoint.md                ← /jtfrom9-cc-workflow:checkpoint で議論を保存
+│   ├── summarise.md                 ← /jtfrom9-cc-workflow:summarise <taskId> で summary.md 再生成
 │   └── tasks.md                     ← /jtfrom9-cc-workflow:tasks で task 一覧表示
 ├── scripts/                         ← シンプルな bash ヘルパー (commands から呼ばれる)
 │   ├── restore-task.sh              ←   restore コマンドのヘルパー
 │   └── list-tasks.sh                ←   tasks コマンドのヘルパー
 ├── python/                          ← 複雑なロジックは Python (UTF-8 / 非同期 / 状態管理)
 │   ├── _common.py                   ←   共通ユーティリティ
-│   ├── _summarize_worker.py         ←   バックグラウンド要約ワーカー
+│   ├── _summarize_worker.py         ←   バックグラウンド要約ワーカー（失敗時は詳細を summary.md に書く）
+│   ├── maybe_spawn_summary.py       ←   plan.md が長ければ要約ワーカーを spawn
+│   ├── regenerate_summary.py        ←   /summarise の本体（今開いている task の summary.md を再生成）
+│   ├── mark_task_open.py            ←   /restore から呼ばれて open_task_id を更新
 │   ├── save_prompt_as_task.py       ←   UserPromptSubmit: 分類器付きの task 採取
 │   ├── relocate_plan.py             ←   PostToolUse(ExitPlanMode): plan ファイルを task 化
 │   └── init_checkpoint.py           ←   checkpoint コマンドのヘルパー
@@ -269,6 +273,34 @@ status: pending
 実体:
 - コマンド: [`commands/checkpoint.md`](commands/checkpoint.md)
 - ヘルパー: [`python/init_checkpoint.py`](python/init_checkpoint.py)
+
+### `/jtfrom9-cc-workflow:summarise`: 今開いている task の summary.md を再生成
+
+引数は取らない。現在のセッションで「開いている」task の `summary.md` を非同期で再生成する。
+
+「開いている task」とは、以下のいずれかで最後に記録された taskId のこと:
+
+- `/jtfrom9-cc-workflow:restore <taskId>` を実行した
+- `/jtfrom9-cc-workflow:checkpoint` で新規 task を作った
+- プランモードで承認した plan が `relocate_plan` 経由で task になった
+
+これらの操作で `~/.jtfrom9-cc-workflow/state/<sid>/open_task_id` が更新される。
+`summarise` は同じファイルを読み、対象 plan.md に対して `_summarize_worker.py` を spawn する。
+
+open task が無い場合（restore 等まだ何も操作していない場合）は、その旨と `/jtfrom9-cc-workflow:restore` の案内が表示される。
+
+ユースケース:
+
+- 自動生成された `summary.md` の出来が悪い、もしくは失敗していた → これで撃ち直す
+- plan.md を手動編集した後に要約を更新したい
+- 後から要約だけ欲しくなった
+
+失敗時の `summary.md` には例外名・終了コード・stderr 等の診断情報が書き込まれるので、再生成前にそこから原因を確認できる。
+
+実体:
+- コマンド: [`commands/summarise.md`](commands/summarise.md)
+- ヘルパー: [`python/regenerate_summary.py`](python/regenerate_summary.py)
+- open task の記録: [`python/mark_task_open.py`](python/mark_task_open.py) (`/restore` から呼ばれる) + 各 task 作成ヘルパー
 
 ### `/jtfrom9-cc-workflow:tasks`: task 一覧表示
 

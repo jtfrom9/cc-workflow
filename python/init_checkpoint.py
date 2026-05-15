@@ -51,11 +51,12 @@ def main() -> int:
     task_dir = project_tasks / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
 
-    # Record new checkpoint as the latest for this session
+    # Record new checkpoint as the latest for this session and mark it open
     if current_sid:
         sdir = state_base / current_sid
         sdir.mkdir(parents=True, exist_ok=True)
         (sdir / "last_checkpoint_taskid").write_text(f"{task_id}\n")
+        _common.mark_task_open(task_id, session_id=current_sid)
 
     lines = [
         f"taskId={task_id}",
