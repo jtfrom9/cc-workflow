@@ -41,7 +41,8 @@ claude plugin install jtfrom9-cc-workflow
 │   └── plugin.json                  ← プラグインマニフェスト（フック宣言などはここ）
 ├── hooks/
 │   ├── banner.sh                    ← SessionStart で名前表示
-│   └── suggest-rename.sh            ← UserPromptSubmit で /rename 提案
+│   ├── suggest-rename.sh            ← UserPromptSubmit で /rename 提案
+│   └── relocate-plan.sh             ← PostToolUse(ExitPlanMode) でプランをプロジェクト毎に整理
 └── README.md
 ```
 
@@ -49,12 +50,24 @@ claude plugin install jtfrom9-cc-workflow
 
 ```
 ~/.jtfrom9-cc-workflow/
+├── plans/<project>/<taskId>/        ← プロジェクト単位 + タスク単位のプラン置き場
+│   ├── plan.md                      ←   承認されたプラン本体
+│   ├── task.md                      ←   タスクのメタ情報 (frontmatter に taskId)
+│   └── summary.md                   ←   plan.md が長ければ要約 (短ければ説明文)
 ├── state/<session-id>/              ← セッション毎の sentinel
 │   ├── count
 │   ├── suggested
 │   └── renamed
 └── log/
 ```
+
+`taskId` の形式は `<index>-<yymmdd>-<original-name>`:
+
+| 部分 | 例 | 説明 |
+|---|---|---|
+| `<index>` | `0001` | プロジェクト内のローカル通し番号。4 桁 0 埋め |
+| `<yymmdd>` | `260515` | 承認日 |
+| `<original-name>` | `pure-pondering-crystal` | Claude Code が生成したプランファイル名 (`.md` を除いたもの) |
 
 `~/.jtfrom9-cc-workflow/` 配下は実行時に自動で作られる。壊れても消しても良い。
 
@@ -85,6 +98,76 @@ claude plugin install jtfrom9-cc-workflow
 | `JTFROM9_CC_WORKFLOW_RENAME_THRESHOLD_CHARS` | `100` | 「大きな指示」と見なす最小文字数 |
 | `JTFROM9_CC_WORKFLOW_RENAME_THRESHOLD_COUNT` | `4` | 何回続いたら提案するか |
 | `JTFROM9_CC_WORKFLOW_DIR` | `$HOME/.jtfrom9-cc-workflow` | 実行時データ置き場のルート |
+
+### relocate-plan: プランをタスクフォルダにまとめて、承認後にいったん停止
+
+`ExitPlanMode` で承認されたプランは Claude Code がデフォルトで `~/.claude/plans/` 直下に `<slug>.md` としてフラットに書き出す。
+このフックは `PostToolUse` を `ExitPlanMode` matcher で受け、以下を行う:
+
+1. **taskId 採番**: `<index>-<yymmdd>-<original-name>` (index はプロジェクト内通し番号 4 桁 0 埋め)
+2. `~/.jtfrom9-cc-workflow/plans/<project>/<taskId>/` フォルダを作り:
+   - `plan.md`: 承認されたプラン本体（移動）
+   - `task.md`: メタ情報。frontmatter に `taskId` 等を持つ
+   - `summary.md`: `plan.md` が長ければ `claude -p` で非同期に要約生成。短ければ要約不要のメッセージ
+3. `JTFROM9_CC_WORKFLOW_PAUSE_AFTER_PLAN=1` (デフォルト) なら、`{ "continue": false, "stopReason": ... }` を返してターン停止。
+   「プランの承認」と「実装開始」を分離し、保存されたプランをユーザが確認・編集してから改めて指示できる。
+
+挙動:
+
+```
+承認
+ → ExitPlanMode 実行: ~/.claude/plans/<slug>.md が書かれる
+ → PostToolUse フック発火
+ → relocate-plan.sh:
+     taskId 採番
+     <slug>.md → ~/.jtfrom9-cc-workflow/plans/<project>/<taskId>/plan.md
+     task.md (frontmatter + 自由記述欄) を生成
+     summary.md を生成 (長いプランは裏で claude -p、短ければ静的文言)
+ → relocate-plan.sh: continue:false でターン停止 (デフォルト時)
+   → ユーザに制御が戻る。プランファイルを確認 / 編集できる
+ → ユーザが「進めて」「実装して」等と指示
+ → Claude が実装に進む
+```
+
+- プロジェクト名: `git rev-parse --show-toplevel` のベース名、git 外なら `$PWD` のベース名
+- 「直近に書かれた .md」判定: `plansDirectory` 内で 5 分以内に変更された `*.md` の最新
+
+スクリプト: [`hooks/relocate-plan.sh`](hooks/relocate-plan.sh)
+
+#### task.md の中身
+
+```yaml
+---
+taskId: "0001-260515-pure-pondering-crystal"
+created_at: "2026-05-15T10:00:00+0900"
+project: "claude-settings"
+project_root: "/Users/jtfrom9/work/jtfrom9/claude-settings"
+session_id: "..."
+original_plan_name: "pure-pondering-crystal"
+status: pending
+---
+
+# <taskId>
+
+(自由記述: 作業中のメモ、決定事項、成果物リンクなど)
+```
+
+`status` は `pending` で始まり、ユーザ／Claude が進捗に応じて手動更新することを想定。
+
+#### 環境変数
+
+| 変数 | デフォルト | 意味 |
+|---|---|---|
+| `JTFROM9_CC_WORKFLOW_SOURCE_PLANS` | `$HOME/.claude/plans` | 移動元（`plansDirectory` を変更している場合に合わせる） |
+| `JTFROM9_CC_WORKFLOW_PAUSE_AFTER_PLAN` | `1` | `1` で承認後に停止、`0` でそのまま実装に進む |
+| `JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES` | `200` | `plan.md` がこの行数を超えたら `claude -p` で要約生成 |
+
+#### 制約
+
+- フック入力には書かれたプランファイルのパスが含まれないため、`plansDirectory` 内の「直近最新の .md」をヒューリスティックで拾っている。
+- 同一セッション内で複数プランを短時間に連続で承認した場合、競合する可能性がある。
+- 要約生成 (`claude -p`) はバックグラウンドで走り、終わるとファイルが上書きされる。失敗するとプレースホルダのまま残ることがある。
+- ユーザが `plansDirectory` を別のディレクトリに設定している場合は `JTFROM9_CC_WORKFLOW_SOURCE_PLANS` でそちらを指定する。
 
 ## 設計方針
 
@@ -122,3 +205,7 @@ find ~/.jtfrom9-cc-workflow/state -mindepth 1 -maxdepth 1 -type d -mtime +30 -ex
 - `branch-watcher`: ブランチを跨いだ作業に気付かせる
 - `context-pressure`: 圧縮直前に `PreCompact` で重要情報を保存させる
 - `long-session-warn`: セッションが N 時間 / N ターンを超えたら警告
+
+## 既知の制限
+
+- プラグインは Claude Code のトップレベル設定（`plansDirectory` など）を上書きできない。プランファイルの整理は事後移動（`relocate-plan`）で対応している。
