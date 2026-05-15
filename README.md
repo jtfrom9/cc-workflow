@@ -42,11 +42,12 @@ claude plugin install jtfrom9-cc-workflow
 ├── hooks/
 │   ├── banner.sh                    ← SessionStart で名前表示
 │   ├── suggest-rename.sh            ← UserPromptSubmit で /rename 提案
-│   └── relocate-plan.sh             ← PostToolUse(ExitPlanMode) でプランをプロジェクト毎に整理
+│   ├── save-prompt-as-task.sh       ← UserPromptSubmit で長めの指示を task として保存
+│   └── relocate-plan.sh             ← PostToolUse(ExitPlanMode) でプランを task に整理
 ├── commands/
-│   └── jtfrom9-restore.md           ← /jtfrom9-restore <taskId> でプランを復元
+│   └── restore.md                   ← /jtfrom9-cc-workflow:restore <taskId> でプランを復元
 ├── scripts/
-│   └── restore-task.sh              ← /jtfrom9-restore のヘルパー
+│   └── restore-task.sh              ← restore コマンドのヘルパー
 └── README.md
 ```
 
@@ -54,7 +55,7 @@ claude plugin install jtfrom9-cc-workflow
 
 ```
 ~/.jtfrom9-cc-workflow/
-├── plans/<project>/<taskId>/        ← プロジェクト単位 + タスク単位のプラン置き場
+├── tasks/<project>/<taskId>/        ← プロジェクト単位 + タスク単位の置き場
 │   ├── plan.md                      ←   承認されたプラン本体
 │   ├── task.md                      ←   タスクのメタ情報 (frontmatter に taskId)
 │   └── summary.md                   ←   plan.md が長ければ要約 (短ければ説明文)
@@ -72,6 +73,29 @@ claude plugin install jtfrom9-cc-workflow
 | `<index>` | `0001` | プロジェクト内のローカル通し番号。4 桁 0 埋め |
 | `<yymmdd>` | `260515` | 承認日 |
 | `<original-name>` | `pure-pondering-crystal` | Claude Code が生成したプランファイル名 (`.md` を除いたもの) |
+
+#### index の採番ルール
+
+各プロジェクトのタスク置き場直下に `.last_index` という隠しカウンタファイルを置き、「これまでに使った最大 index」を記録する。新しい index は以下で決まる:
+
+```
+next_index = max(.last_index の値, 既存フォルダ名から抽出した最大番号) + 1
+```
+
+これにより:
+
+- フォルダを個別に削除しても、削除した番号が再利用されない（最大番号の削除を含む）
+- 万一 `.last_index` を失っても「既存フォルダの最大値 + 1」にフォールバックする
+- フォルダ・カウンタの両方が消えれば 0001 から再開する
+
+#### task.md の frontmatter で出所を区別
+
+`source:` フィールドで、task がどのフックから作られたかが分かる:
+
+- `source: plan` — プランモードで承認された ExitPlanMode の plan を元に作られた (`relocate-plan.sh`)
+- `source: prompt` — プランモード外でユーザが直接送信した指示文から作られた (`save-prompt-as-task.sh`)
+
+同じセッションで両方発火すると、論理上 1 つのタスクに対して task フォルダが 2 つ並ぶことがある。重複は許容する設計で、不要な方は手動で削除する。
 
 `~/.jtfrom9-cc-workflow/` 配下は実行時に自動で作られる。壊れても消しても良い。
 
@@ -103,13 +127,29 @@ claude plugin install jtfrom9-cc-workflow
 | `JTFROM9_CC_WORKFLOW_RENAME_THRESHOLD_COUNT` | `4` | 何回続いたら提案するか |
 | `JTFROM9_CC_WORKFLOW_DIR` | `$HOME/.jtfrom9-cc-workflow` | 実行時データ置き場のルート |
 
+### save-prompt-as-task: プランモードを忘れた指示も自動で task 化
+
+ユーザがプランモードに入らずに長めの指示を送信した場合でも、`UserPromptSubmit` フックがその指示文をそのまま task として保存する。`relocate-plan` の補完的な役割。
+
+- 対象: 文字数が閾値以上で、`/` で始まらないプロンプト
+- 重複防止: 直前のプロンプトと完全一致するものはスキップ
+- 出力: 通常の task フォルダ構造（`plan.md` = ユーザ原文プロンプト、`task.md` に `source: prompt`、`summary.md` は長文時のみ）
+- ターン停止はしない（このフックは捕捉だけで、ユーザの作業フローは止めない）
+
+スクリプト: [`hooks/save-prompt-as-task.sh`](hooks/save-prompt-as-task.sh)
+
+| 変数 | デフォルト | 意味 |
+|---|---|---|
+| `JTFROM9_CC_WORKFLOW_SAVE_PROMPT_AS_TASK` | `1` | `0` で無効化 |
+| `JTFROM9_CC_WORKFLOW_PROMPT_TASK_THRESHOLD_CHARS` | `100` | これ未満のプロンプトは捕捉しない |
+
 ### relocate-plan: プランをタスクフォルダにまとめて、承認後にいったん停止
 
 `ExitPlanMode` で承認されたプランは Claude Code がデフォルトで `~/.claude/plans/` 直下に `<slug>.md` としてフラットに書き出す。
 このフックは `PostToolUse` を `ExitPlanMode` matcher で受け、以下を行う:
 
 1. **taskId 採番**: `<index>-<yymmdd>-<original-name>` (index はプロジェクト内通し番号 4 桁 0 埋め)
-2. `~/.jtfrom9-cc-workflow/plans/<project>/<taskId>/` フォルダを作り:
+2. `~/.jtfrom9-cc-workflow/tasks/<project>/<taskId>/` フォルダを作り:
    - `plan.md`: 承認されたプラン本体（移動）
    - `task.md`: メタ情報。frontmatter に `taskId` 等を持つ
    - `summary.md`: `plan.md` が長ければ `claude -p` で非同期に要約生成。短ければ要約不要のメッセージ
@@ -124,7 +164,7 @@ claude plugin install jtfrom9-cc-workflow
  → PostToolUse フック発火
  → relocate-plan.sh:
      taskId 採番
-     <slug>.md → ~/.jtfrom9-cc-workflow/plans/<project>/<taskId>/plan.md
+     <slug>.md → ~/.jtfrom9-cc-workflow/tasks/<project>/<taskId>/plan.md
      task.md (frontmatter + 自由記述欄) を生成
      summary.md を生成 (長いプランは裏で claude -p、短ければ静的文言)
  → relocate-plan.sh: continue:false でターン停止 (デフォルト時)
@@ -175,13 +215,14 @@ status: pending
 
 ## カスタムコマンド
 
-### `/jtfrom9-restore <taskId>`: 保存済みプランの復元
+### `/jtfrom9-cc-workflow:restore <taskId>`: 保存済みプランの復元
 
 引数の taskId に対応する保存済みプランをコンテキストに読み込み、その続きから作業を再開するためのスラッシュコマンド。
+（プラグインのコマンドは常に `<plugin-name>:<command>` 形式で名前空間化されるため、フルネームで呼ぶ。）
 
 挙動:
 - 現在のプロジェクト名（git ルート or cwd のベース名）を判定
-- `~/.jtfrom9-cc-workflow/plans/<project>/<taskId>/` 配下の `task.md` / `plan.md` / `summary.md` を読み出してプロンプトに展開
+- `~/.jtfrom9-cc-workflow/tasks/<project>/<taskId>/` 配下の `task.md` / `plan.md` / `summary.md` を読み出してプロンプトに展開
 - Claude はその内容を踏まえて、ユーザの次の指示を待つ
 
 エラー時の挙動:
@@ -189,7 +230,7 @@ status: pending
 - 該当 taskId が見つからない → エラー + 一覧を表示
 
 実体:
-- コマンド: [`commands/jtfrom9-restore.md`](commands/jtfrom9-restore.md)
+- コマンド: [`commands/restore.md`](commands/restore.md)
 - ヘルパー: [`scripts/restore-task.sh`](scripts/restore-task.sh)
 
 ## 設計方針

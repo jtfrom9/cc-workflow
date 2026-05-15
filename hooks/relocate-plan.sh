@@ -6,7 +6,7 @@
 # 動作:
 #   1. ExitPlanMode が plansDirectory に書き出したばかりのプランファイルを特定する
 #   2. taskId = <0001..>-<YYMMDD>-<元ファイル名> を採番
-#   3. ~/.jtfrom9-cc-workflow/plans/<project>/<taskId>/ を掘って:
+#   3. ~/.jtfrom9-cc-workflow/tasks/<project>/<taskId>/ を掘って:
 #        - plan.md   : 移動したプランファイル
 #        - task.md   : メタ情報 (frontmatter に taskId)
 #        - summary.md: plan.md が長ければ claude -p で非同期生成
@@ -35,8 +35,8 @@ else
   PROJECT=$(basename "$PWD")
 fi
 
-PROJECT_PLANS="$DATA_DIR/plans/$PROJECT"
-mkdir -p "$PROJECT_PLANS"
+PROJECT_TASKS="$DATA_DIR/tasks/$PROJECT"
+mkdir -p "$PROJECT_TASKS"
 
 # 直近 5 分以内に書かれた .md を探す
 LATEST=""
@@ -54,14 +54,50 @@ if [ -z "$LATEST" ] || [ ! -f "$LATEST" ]; then
   exit 0
 fi
 
+# taskId の "name" 部分: プラン本文の最初の H1 見出しから派生させる。
+# 取れなければ Claude Code が付けた元スラグ (ランダム単語) にフォールバック。
+# 日本語タイトルのために LC_ALL=C をつけて sed/tr/awk をバイト単位扱いにする
+# (ASCII の空白とパス禁則文字だけ - に潰し、マルチバイト文字はそのまま通す)。
+DERIVED_NAME=$(
+  LC_ALL=C awk '
+    BEGIN { in_fm = 0 }
+    NR == 1 && /^---$/ { in_fm = 1; next }
+    in_fm && /^---$/   { in_fm = 0; next }
+    in_fm              { next }
+    /^# +/             { sub(/^# +/, ""); print; exit }
+  ' "$LATEST" 2>/dev/null \
+    | LC_ALL=C tr -d '[:cntrl:]' \
+    | LC_ALL=C sed -E 's|[[:space:]/\\:*?"<>|]+|-|g' \
+    | LC_ALL=C sed -E 's/-+/-/g; s/^-+//; s/-+$//'
+)
+ORIG_NAME="${DERIVED_NAME:-$(basename "$LATEST" .md)}"
+
 # taskId 採番
-ORIG_NAME=$(basename "$LATEST" .md)
+#   - <project>/.last_index に「これまでに使った最大インデックス」を保持
+#   - 既存フォルダの最大値とのうち大きい方 + 1 を新しいインデックスとする
+#   - これにより、最大番号のフォルダを削除しても次のインデックスを再利用しない
 YMD=$(date +%y%m%d)
-MAX_INDEX=$(ls "$PROJECT_PLANS" 2>/dev/null | grep -oE '^[0-9]{4}' | sort -n | tail -1 || true)
-NEXT_INDEX=$((10#${MAX_INDEX:-0} + 1))
+COUNTER_FILE="$PROJECT_TASKS/.last_index"
+
+LAST_FROM_FILE=$(cat "$COUNTER_FILE" 2>/dev/null || echo 0)
+case "$LAST_FROM_FILE" in
+  ''|*[!0-9]*) LAST_FROM_FILE=0 ;;
+esac
+
+LAST_FROM_DIRS=$(ls "$PROJECT_TASKS" 2>/dev/null | grep -oE '^[0-9]{4}' | sort -n | tail -1 || true)
+LAST_FROM_DIRS=${LAST_FROM_DIRS:-0}
+
+LAST_USED=$LAST_FROM_FILE
+if [ "$((10#$LAST_FROM_DIRS))" -gt "$LAST_USED" ]; then
+  LAST_USED=$((10#$LAST_FROM_DIRS))
+fi
+
+NEXT_INDEX=$((LAST_USED + 1))
 INDEX_PADDED=$(printf '%04d' "$NEXT_INDEX")
+printf '%s\n' "$NEXT_INDEX" > "$COUNTER_FILE"
+
 TASK_ID="${INDEX_PADDED}-${YMD}-${ORIG_NAME}"
-TASK_DIR="$PROJECT_PLANS/$TASK_ID"
+TASK_DIR="$PROJECT_TASKS/$TASK_ID"
 
 mkdir -p "$TASK_DIR"
 mv "$LATEST" "$TASK_DIR/plan.md"
@@ -89,7 +125,7 @@ status: pending
 <!-- 自由記述 -->
 EOF
 
-# summary.md (plan.md が長ければ非同期で要約生成)
+# summary.md は plan.md が長いときだけ生成する (claude -p で非同期)。短いときは作らない。
 LINES=$(wc -l < "$TASK_DIR/plan.md" | tr -d ' ')
 SUMMARY_NOTE=""
 if [ "$LINES" -gt "$SUMMARY_THRESHOLD_LINES" ]; then
@@ -106,8 +142,6 @@ $(cat "$TASK_DIR/plan.md")"
   ) >/dev/null 2>&1 </dev/null &
   disown 2>/dev/null || true
   SUMMARY_NOTE=" plan.md が ${LINES} 行と長いため、要約を別途生成中（summary.md）。"
-else
-  printf '# Summary\n\nplan.md が短い (%s 行) ため要約は不要。\n' "$LINES" > "$TASK_DIR/summary.md"
 fi
 
 # ターン停止 (デフォルト)

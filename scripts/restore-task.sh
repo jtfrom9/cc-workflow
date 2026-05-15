@@ -19,14 +19,15 @@ else
   PROJECT=$(basename "$PWD")
 fi
 
-PROJECT_PLANS="$DATA_DIR/plans/$PROJECT"
+PROJECT_TASKS="$DATA_DIR/tasks/$PROJECT"
 
 list_available() {
   echo
   echo "### このプロジェクト ($PROJECT) で利用可能な taskId"
   echo
-  if [ -d "$PROJECT_PLANS" ] && [ "$(ls -A "$PROJECT_PLANS" 2>/dev/null)" ]; then
-    ls -1 "$PROJECT_PLANS" | sed 's/^/- /'
+  # 隠しファイル (.last_index など) は除外する
+  if [ -d "$PROJECT_TASKS" ] && [ -n "$(ls "$PROJECT_TASKS" 2>/dev/null)" ]; then
+    ls -1 "$PROJECT_TASKS" | sed 's/^/- /'
   else
     echo "(まだ 1 件もありません)"
   fi
@@ -35,12 +36,12 @@ list_available() {
 if [ -z "$TASKID" ]; then
   echo "**エラー: taskId が指定されていません。**"
   echo
-  echo "使い方: \`/jtfrom9-restore <taskId>\`"
+  echo "使い方: コマンドの引数に taskId を 1 つ指定してください。"
   list_available
   exit 0
 fi
 
-TASK_DIR="$PROJECT_PLANS/$TASKID"
+TASK_DIR="$PROJECT_TASKS/$TASKID"
 if [ ! -d "$TASK_DIR" ]; then
   echo "**エラー: taskId \`$TASKID\` がプロジェクト \`$PROJECT\` に見つかりません。**"
   list_available
