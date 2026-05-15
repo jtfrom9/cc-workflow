@@ -117,7 +117,7 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 
 スクリプト: [`hooks/banner.sh`](hooks/banner.sh)
 
-### checkpoint (hook モード): Stop でトークン使用量を見て自動採取
+### 自動 checkpoint: Stop でトークン使用量を見て自動採取
 
 Claude の応答が終わるたびに（`Stop` フック）、現在のコンテキスト使用量を確認して、必要なら task を自動採取する。判定は LLM に投げず、セッショントランスクリプト (`~/.claude/projects/<encoded>/<sid>.jsonl`) の `usage.cache_read_input_tokens + cache_creation_input_tokens + input_tokens` をそのまま読む。
 
@@ -260,7 +260,7 @@ status: pending
 
 ## カスタムコマンド
 
-### `/jtfrom9-cc-workflow:checkpoint [スラグ]`: 明示的に議論を保存（インクリメンタル）
+### `/jtfrom9-cc-workflow:checkpoint`: 明示的に議論を保存（インクリメンタル）
 
 これまでの会話を Claude に **詳細に**（甘くまとめずに）記録させ、`source: checkpoint` の task として手動保存するコマンド。長くなったセッションの途中で「ここまでを残してから続きをやる」のような区切りに使う。
 
@@ -271,7 +271,7 @@ status: pending
 - 直前 checkpoint が無い場合は、セッション最初から現時点までの全内容を対象に書き出す
 - 続けて Write ツールで `task.md` を書く（frontmatter に `prev_checkpoint_taskid` が入って連鎖する）
 - `plan.md` が閾値行数を超えていれば `python/maybe_spawn_summary.py` 経由で `summary.md` を非同期生成（短ければスキップ）
-- 引数があれば taskId のスラグ部分にも反映 (省略時 "checkpoint")
+- taskId のスラグ部分は Claude が会話内容から短いタイトルを自分で決めて付ける（ユーザの追加引数は不要）
 
 「詳細に」とは具体的に、採用方針・却下案・触ったファイル・コミット・走らせたコマンド・未解決の課題・トレードオフ・参考情報まで漏らさず残すこと。短くまとめようとせず、**後でこの plan.md だけ読めば作業を完全に再開できる** 情報量を目指す。
 
