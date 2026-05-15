@@ -1,40 +1,31 @@
 #!/usr/bin/env python3
-"""checkpoint — single entry point for both the auto-checkpoint Stop hook
-and the manual /jtfrom9-cc-workflow:checkpoint helper.
+"""checkpoint — unified entry for both auto and manual checkpoint.
+
+The only thing that differs between the two paths is the trigger:
+
+- **auto**:  ``--auto`` flag, called from the ``Stop`` hook with hook JSON on
+  stdin. Decides whether to fire based on token-usage growth from the
+  most recent task. The slug is auto-generated from the timestamp.
+- **manual**: positional slug arg, called from
+  ``commands/checkpoint.md``. Always fires; the slug comes from the
+  caller (Claude derives it from the conversation content).
+
+Both produce the same kind of task folder with the same ``source: checkpoint``,
+the same plan.md / task.md layout, and the same "previous task" semantics
+(= the highest-index task in this project, regardless of how it was
+created). The manual path additionally has Claude overwrite plan.md with
+detailed diff content via the Write tool after this script returns.
 
 Usage:
-    python3 checkpoint.py hook
-        Called from the ``Stop`` hook (after Claude finishes a response).
-        Reads stdin JSON, inspects the session transcript's token usage,
-        and creates a task folder if the threshold rules below are met.
-
-    python3 checkpoint.py init [slug]
-        Called from the slash command body (commands/checkpoint.md).
-        Allocates a new taskId and prints key=value paths for the slash
-        command (= Claude) to write plan.md / task.md into.
-
-Trigger rules for ``hook`` mode:
-    - "Previous task" = the task with the highest 4-digit index in
-      ``~/.jtfrom9-cc-workflow/tasks/<project>/`` (regardless of source).
-    - If previous task is in the SAME session_id → save when current
-      context tokens > prev tokens × (1 + threshold_pct).
-    - If previous task is in a DIFFERENT session → save when current
-      context tokens > max_context × threshold_pct.
-    - If no previous task → save when current context tokens >
-      max_context × threshold_pct.
-
-Env vars:
-    JTFROM9_CC_WORKFLOW_AUTO_CHECKPOINT (default 1) — 0 disables hook mode.
-    JTFROM9_CC_WORKFLOW_CHECKPOINT_PCT (default 30) — threshold percent.
-    JTFROM9_CC_WORKFLOW_MAX_CONTEXT_TOKENS (default 200000) — context window
-        size used for the "different session" rule. Set to 1000000 for the
-        Opus 1M variant.
+    python3 checkpoint.py [slug]          # manual mode
+    python3 checkpoint.py --auto          # auto mode (Stop hook)
 """
 
 from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -42,244 +33,254 @@ import _common  # noqa: E402
 
 
 # ----------------------------------------------------------------------
-# Hook mode (Stop event)
+# Decision (auto mode only)
 # ----------------------------------------------------------------------
 
-def _decide_save(
-    project: str,
+def _should_save_auto(
     sid: str,
     current_tokens: int,
+    prev_taskid: str,
+    prev_sid: str,
+    prev_tokens: int,
     threshold_pct: float,
     max_tokens: int,
-) -> tuple[bool, str, dict]:
-    """Returns (should_save, reason, prev_info).
-
-    ``prev_info`` is a small dict with prev_task_id, prev_tokens, prev_sid
-    suitable for stamping into task.md frontmatter.
-    """
-    prev_info = {"prev_task_id": "", "prev_tokens": 0, "prev_sid": ""}
-    last_task = _common.latest_task_in_project(project)
-
-    if last_task is None:
+) -> tuple[bool, str]:
+    """Return (should_save, reason)."""
+    if not prev_taskid:
         if current_tokens > threshold_pct * max_tokens:
             return (
                 True,
                 f"no previous task; {current_tokens} > {int(threshold_pct * max_tokens)} "
                 f"({int(threshold_pct * 100)}% of {max_tokens})",
-                prev_info,
             )
-        return (False, "", prev_info)
-
-    fm = _common.parse_frontmatter(last_task / "task.md")
-    prev_sid = fm.get("session_id", "")
-    try:
-        prev_tokens = int(fm.get("tokens", "0") or "0")
-    except ValueError:
-        prev_tokens = 0
-    prev_info.update(
-        prev_task_id=last_task.name,
-        prev_tokens=prev_tokens,
-        prev_sid=prev_sid,
-    )
-
+        return (False, "")
     if prev_sid == sid:
-        # Same session: % growth from last save
         bound = int(prev_tokens * (1 + threshold_pct))
         if current_tokens > bound:
             return (
                 True,
                 f"same session; {current_tokens} > {bound} "
                 f"(prev {prev_tokens} + {int(threshold_pct * 100)}%)",
-                prev_info,
             )
+        return (False, "")
+    bound = int(threshold_pct * max_tokens)
+    if current_tokens > bound:
+        return (
+            True,
+            f"different session; {current_tokens} > {bound} "
+            f"({int(threshold_pct * 100)}% of {max_tokens})",
+        )
+    return (False, "")
+
+
+# ----------------------------------------------------------------------
+# File writing
+# ----------------------------------------------------------------------
+
+def _write_plan_md(
+    plan_path: Path,
+    task_id: str,
+    trigger: str,
+    trigger_reason: str,
+    now_iso: str,
+    sid: str,
+    current_tokens: int,
+    prev_taskid: str,
+    prev_tokens: int,
+    prev_sid: str,
+    transcript: Path,
+) -> None:
+    if trigger == "auto":
+        intro = f"_(Stop フックで自動採取された checkpoint。トリガ: {trigger_reason})_"
     else:
-        # Different session: % of max
-        bound = int(threshold_pct * max_tokens)
-        if current_tokens > bound:
-            return (
-                True,
-                f"different session; {current_tokens} > {bound} "
-                f"({int(threshold_pct * 100)}% of {max_tokens})",
-                prev_info,
-            )
-    return (False, "", prev_info)
+        intro = "_(`/jtfrom9-cc-workflow:checkpoint` で明示的に保存された checkpoint。"\
+                " 詳細は Claude が後段でこのファイルを上書きします。)_"
+
+    lines = [
+        f"# {task_id}",
+        "",
+        intro,
+        "",
+        f"- 採取時刻: `{now_iso}`",
+        f"- セッション ID: `{sid}`",
+        f"- 現在のコンテキスト使用量: `{current_tokens:,}` tokens",
+        f"- 前回タスク: `{prev_taskid or '(なし)'}`",
+        f"- 前回タスク時のトークン: `{prev_tokens:,}`",
+        f"- 前回セッション ID: `{prev_sid or '(なし)'}`",
+        "",
+        f"会話の中身はセッショントランスクリプトを参照: `{transcript}`",
+        "",
+    ]
+    plan_path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _write_auto_task(
+def _write_task_md(
+    task_md_path: Path,
+    task_id: str,
+    now_iso: str,
     project: str,
     project_root: Path,
     sid: str,
+    trigger: str,
+    trigger_reason: str,
     current_tokens: int,
-    reason: str,
-    prev_info: dict,
-) -> str:
-    """Create the task dir + plan.md + task.md for an auto checkpoint.
-    Returns the new taskId."""
-    from datetime import datetime
-
-    project_tasks = _common.project_tasks_dir(project)
-    project_tasks.mkdir(parents=True, exist_ok=True)
-
-    now_dt = datetime.now()
-    slug = f"auto-{now_dt.strftime('%H%M%S')}"
-    next_index = _common.compute_next_index(project_tasks)
-    task_id = _common.make_taskid(next_index, slug, today=now_dt)
-    task_dir = project_tasks / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
-
-    now_iso = _common.now_iso()
-    transcript = _common.session_transcript_path(sid, project_root)
-
-    plan_md = (
-        f"# Auto-checkpoint {now_iso}\n\n"
-        f"_(Stop フックで自動採取された checkpoint。トリガ: {reason})_\n\n"
-        f"- 採取時刻: `{now_iso}`\n"
-        f"- セッション ID: `{sid}`\n"
-        f"- 現在のコンテキスト使用量: `{current_tokens:,}` tokens\n"
-        f"- 前回タスク: `{prev_info['prev_task_id'] or '(なし)'}`\n"
-        f"- 前回タスク時のトークン: `{prev_info['prev_tokens']:,}`\n"
-        f"- 前回セッション ID: `{prev_info['prev_sid'] or '(なし)'}`\n\n"
-        f"会話の中身はセッショントランスクリプトを参照: `{transcript}`\n"
+    prev_taskid: str,
+    prev_tokens: int,
+    prev_sid: str,
+) -> None:
+    body = (
+        "ExitPlanMode・自動 Stop フック・/checkpoint コマンドのいずれかから"
+        " jtfrom9-cc-workflow が採取した checkpoint。"
     )
-    (task_dir / "plan.md").write_text(plan_md, encoding="utf-8")
+    fm_lines = [
+        "---",
+        f'taskId: "{task_id}"',
+        f'created_at: "{now_iso}"',
+        f'project: "{project}"',
+        f'project_root: "{project_root}"',
+        f'session_id: "{sid}"',
+        "source: checkpoint",
+        f"trigger: {trigger}",
+        f"tokens: {current_tokens}",
+        f'prev_task_id: "{prev_taskid}"',
+        f"prev_tokens: {prev_tokens}",
+        f'prev_session_id: "{prev_sid}"',
+    ]
+    if trigger_reason:
+        fm_lines.append(f'trigger_reason: "{trigger_reason}"')
+    fm_lines += [
+        "status: pending",
+        "---",
+        "",
+        f"# {task_id}",
+        "",
+        body,
+        "",
+    ]
+    task_md_path.write_text("\n".join(fm_lines), encoding="utf-8")
 
-    task_md = (
-        "---\n"
-        f'taskId: "{task_id}"\n'
-        f'created_at: "{now_iso}"\n'
-        f'project: "{project}"\n'
-        f'project_root: "{project_root}"\n'
-        f'session_id: "{sid}"\n'
-        "source: checkpoint-auto\n"
-        f"tokens: {current_tokens}\n"
-        f'prev_task_id: "{prev_info["prev_task_id"]}"\n'
-        f"prev_tokens: {prev_info['prev_tokens']}\n"
-        f'prev_session_id: "{prev_info["prev_sid"]}"\n'
-        f'trigger_reason: "{reason}"\n'
-        "status: pending\n"
-        "---\n\n"
-        f"# {task_id}\n\n"
-        "Stop フックでトークン使用量の閾値を超えたため自動採取された checkpoint。\n"
-    )
-    (task_dir / "task.md").write_text(task_md, encoding="utf-8")
 
-    return task_id
+# ----------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------
 
+def main() -> int:
+    args = sys.argv[1:]
+    auto_mode = "--auto" in args
+    args = [a for a in args if a != "--auto"]
+    slug_arg = args[0] if args else ""
 
-def run_hook() -> int:
-    if os.environ.get("JTFROM9_CC_WORKFLOW_AUTO_CHECKPOINT", "1") != "1":
-        return 0
     threshold_pct = float(os.environ.get("JTFROM9_CC_WORKFLOW_CHECKPOINT_PCT", "30")) / 100.0
     max_tokens = int(os.environ.get("JTFROM9_CC_WORKFLOW_MAX_CONTEXT_TOKENS", "200000"))
 
-    data = _common.read_hook_input()
-    sid = data.get("session_id") or ""
-    if not sid:
-        return 0
+    # Resolve session id
+    if auto_mode:
+        if os.environ.get("JTFROM9_CC_WORKFLOW_AUTO_CHECKPOINT", "1") != "1":
+            return 0
+        data = _common.read_hook_input()
+        sid = data.get("session_id") or ""
+        if not sid:
+            return 0
+    else:
+        sid = _common.detect_current_session_id()
 
     project, project_root = _common.get_project_info()
 
-    current_tokens = _common.current_context_tokens(sid, project_root)
-    if current_tokens <= 0:
-        return 0
+    # Look up the most recent task in this project (max index)
+    prev_task = _common.latest_task_in_project(project)
+    prev_taskid = prev_task.name if prev_task else ""
+    prev_plan_path = str(prev_task / "plan.md") if prev_task else ""
+    prev_fm = _common.parse_frontmatter(prev_task / "task.md") if prev_task else {}
+    try:
+        prev_tokens = int(prev_fm.get("tokens", "0") or "0")
+    except ValueError:
+        prev_tokens = 0
+    prev_sid = prev_fm.get("session_id", "")
+    prev_created = prev_fm.get("created_at", "")
 
-    should_save, reason, prev_info = _decide_save(
-        project=project,
-        sid=sid,
-        current_tokens=current_tokens,
-        threshold_pct=threshold_pct,
-        max_tokens=max_tokens,
-    )
-    if not should_save:
-        return 0
+    current_tokens = _common.current_context_tokens(sid, project_root) if sid else 0
 
-    _write_auto_task(
-        project=project,
-        project_root=project_root,
-        sid=sid,
-        current_tokens=current_tokens,
-        reason=reason,
-        prev_info=prev_info,
-    )
-    return 0
+    if auto_mode:
+        if current_tokens <= 0:
+            return 0
+        should_save, reason = _should_save_auto(
+            sid=sid,
+            current_tokens=current_tokens,
+            prev_taskid=prev_taskid,
+            prev_sid=prev_sid,
+            prev_tokens=prev_tokens,
+            threshold_pct=threshold_pct,
+            max_tokens=max_tokens,
+        )
+        if not should_save:
+            return 0
+        slug = f"auto-{datetime.now().strftime('%H%M%S')}"
+        trigger = "auto"
+        trigger_reason = reason
+    else:
+        slug = _common.slugify(slug_arg) or "checkpoint"
+        trigger = "manual"
+        trigger_reason = ""
 
-
-# ----------------------------------------------------------------------
-# Init mode (called from the manual /checkpoint slash command body)
-# ----------------------------------------------------------------------
-
-def run_init(name_arg: str) -> int:
-    name_arg = name_arg or "checkpoint"
-
-    project, project_root = _common.get_project_info()
+    # Create task dir + files
     project_tasks = _common.project_tasks_dir(project)
-    state_base = _common.data_dir() / "state"
-    state_base.mkdir(parents=True, exist_ok=True)
     project_tasks.mkdir(parents=True, exist_ok=True)
-
-    current_sid = _common.detect_current_session_id()
-
-    # Lookup previous checkpoint of this session (only manual /checkpoint chain)
-    prev_taskid = ""
-    prev_plan = ""
-    prev_created = ""
-    if current_sid:
-        marker = state_base / current_sid / "last_checkpoint_taskid"
-        if marker.exists():
-            cand = marker.read_text().strip()
-            cand_dir = project_tasks / cand
-            if cand and cand_dir.is_dir():
-                prev_taskid = cand
-                prev_plan = str(cand_dir / "plan.md")
-                fm = _common.parse_frontmatter(cand_dir / "task.md")
-                prev_created = fm.get("created_at", "")
-
-    slug = _common.slugify(name_arg) or "checkpoint"
     next_index = _common.compute_next_index(project_tasks)
     task_id = _common.make_taskid(next_index, slug)
     task_dir = project_tasks / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
 
-    # Update sentinels
-    if current_sid:
-        sdir = state_base / current_sid
-        sdir.mkdir(parents=True, exist_ok=True)
-        (sdir / "last_checkpoint_taskid").write_text(f"{task_id}\n")
-        _common.mark_task_open(task_id, session_id=current_sid)
+    now_iso = _common.now_iso()
+    transcript = _common.session_transcript_path(sid, project_root) if sid else Path("")
 
-    lines = [
-        f"taskId={task_id}",
-        f"task_dir={task_dir}",
-        f"plan_path={task_dir / 'plan.md'}",
-        f"task_md_path={task_dir / 'task.md'}",
-        f"project={project}",
-        f"project_root={project_root}",
-        f"created_at={_common.now_iso()}",
-        f"session_id={current_sid}",
-        f"prev_checkpoint_taskid={prev_taskid}",
-        f"prev_checkpoint_plan={prev_plan}",
-        f"prev_checkpoint_created={prev_created}",
-    ]
-    print("\n".join(lines))
+    _write_plan_md(
+        plan_path=task_dir / "plan.md",
+        task_id=task_id,
+        trigger=trigger,
+        trigger_reason=trigger_reason,
+        now_iso=now_iso,
+        sid=sid,
+        current_tokens=current_tokens,
+        prev_taskid=prev_taskid,
+        prev_tokens=prev_tokens,
+        prev_sid=prev_sid,
+        transcript=transcript,
+    )
+    _write_task_md(
+        task_md_path=task_dir / "task.md",
+        task_id=task_id,
+        now_iso=now_iso,
+        project=project,
+        project_root=project_root,
+        sid=sid,
+        trigger=trigger,
+        trigger_reason=trigger_reason,
+        current_tokens=current_tokens,
+        prev_taskid=prev_taskid,
+        prev_tokens=prev_tokens,
+        prev_sid=prev_sid,
+    )
+
+    # Mark this task as the "open" one (both modes)
+    if sid:
+        _common.mark_task_open(task_id, session_id=sid)
+
+    # Manual mode: print key=value so the slash command body can consume
+    if not auto_mode:
+        print(f"taskId={task_id}")
+        print(f"task_dir={task_dir}")
+        print(f"plan_path={task_dir / 'plan.md'}")
+        print(f"task_md_path={task_dir / 'task.md'}")
+        print(f"project={project}")
+        print(f"project_root={project_root}")
+        print(f"created_at={now_iso}")
+        print(f"session_id={sid}")
+        print(f"prev_taskid={prev_taskid}")
+        print(f"prev_plan_path={prev_plan_path}")
+        print(f"prev_created={prev_created}")
+        print(f"current_tokens={current_tokens}")
+        print(f"prev_tokens={prev_tokens}")
     return 0
-
-
-# ----------------------------------------------------------------------
-# Entry point
-# ----------------------------------------------------------------------
-
-def main() -> int:
-    if len(sys.argv) < 2:
-        print("usage: checkpoint.py {hook|init [slug]}", file=sys.stderr)
-        return 1
-    mode = sys.argv[1]
-    if mode == "hook":
-        return run_hook()
-    if mode == "init":
-        slug = sys.argv[2] if len(sys.argv) > 2 else ""
-        return run_init(slug)
-    print(f"unknown mode: {mode}", file=sys.stderr)
-    return 1
 
 
 if __name__ == "__main__":

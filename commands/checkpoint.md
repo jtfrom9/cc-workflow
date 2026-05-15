@@ -12,7 +12,6 @@ allowed-tools: Bash, Read, Write
 
 これから保存する内容を反映する **短い日本語タイトル** (10〜30 字程度) をまず決める。
 このタイトルが taskId のスラグ部分（`<index>-<yymmdd>-<TITLE>`）になり、後から `/tasks` で一覧した時に内容が一目で分かるものにする。
-前回 checkpoint からの差分（後述）に何が含まれるかを踏まえて、汎用な「checkpoint」ではなく具体的な名前にすること。
 
 例: 「プラグインの Python 移行」「summarise コマンド設計」「自動 checkpoint の閾値判定実装」
 
@@ -28,23 +27,27 @@ Bash ツールで以下を実行し、出力 (key=value 形式) をパースし�
 - `project_root`
 - `created_at`
 - `session_id`
-- `prev_checkpoint_taskid`  (このセッション内で直前に保存した checkpoint がある場合のみ非空)
-- `prev_checkpoint_plan`
-- `prev_checkpoint_created`
+- `prev_taskid`  (このプロジェクトで一つ前のタスクがある場合のみ非空。auto/manual を問わず最大 index のもの)
+- `prev_plan_path`
+- `prev_created`
+- `current_tokens`
+- `prev_tokens`
 
 ```sh
-python3 "${CLAUDE_PLUGIN_ROOT}/python/checkpoint.py" init "<手順 1 で決めたタイトル>"
+python3 "${CLAUDE_PLUGIN_ROOT}/python/checkpoint.py" "<手順 1 で決めたタイトル>"
 ```
 
-### 3. 前回チェックポイント以降を特定する
+このコマンドが既に **plan.md と task.md の雛形** をその task ディレクトリに書き込んでいる（メタ情報のみ）。次の手順で plan.md を中身入りで上書きする。
 
-`prev_checkpoint_plan` が空でなければ、Read ツールでその plan.md を読み、**何が既に記録済みか** を把握する。
-`prev_checkpoint_plan` が空の場合は、セッションの最初から現時点までが対象。
+### 3. 前回タスク以降を特定する
+
+`prev_plan_path` が空でなければ、Read ツールでその plan.md を読み、**何が既に記録済みか** を把握する。
+`prev_plan_path` が空の場合は、セッションの最初から現時点までが対象。
 
 ### 4. plan.md を書く（**甘くまとめないこと**）
 
-Write ツールで `plan_path` に書き込む。冒頭に `# <手順 1 で決めたタイトル>` を入れる。
-対象範囲は **前回 checkpoint 以降から現時点までの差分**（前回が無ければセッション全体）。
+Write ツールで `plan_path` を上書きする。冒頭に `# <手順 1 で決めたタイトル>` を入れる。
+対象範囲は **前回タスク以降から現時点までの差分**（前回が無ければセッション全体）。
 
 **「詳細に拾う」とは具体的に**:
 
@@ -59,31 +62,7 @@ Write ツールで `plan_path` に書き込む。冒頭に `# <手順 1 で決�
 
 要約ではなく「後でこの plan.md だけ読めば作業を完全に再開できる」レベルの情報量を保つこと。短くしようと頑張らない。長くなって良い。
 
-### 5. task.md を書く
-
-Write ツールで `task_md_path` に書き込む。`<...>` は手順 2 で取得した値で埋める。`prev_checkpoint_taskid` が空でない場合は frontmatter にも書く。
-
-```markdown
----
-taskId: "<taskId>"
-created_at: "<created_at>"
-project: "<project>"
-project_root: "<project_root>"
-session_id: "<session_id>"
-source: checkpoint
-status: pending
-prev_checkpoint_taskid: "<prev_checkpoint_taskid>"   # ← 前回 checkpoint がある場合のみ
----
-
-# <taskId>
-
-`/jtfrom9-cc-workflow:checkpoint` で明示的に保存された会話のスナップショット。
-`<prev_checkpoint_created>` 以降〜現時点までの作業内容を plan.md に記録した。
-```
-
-`prev_checkpoint_taskid` が空のときは frontmatter の該当行を省く。
-
-### 6. summary.md の生成判定（plan.md が長い場合のみ）
+### 5. summary.md の生成判定（plan.md が長い場合のみ）
 
 Bash で以下を実行する。`plan.md` が閾値（`JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行）を超えていれば、ヘルパが裏で `claude -p` を呼んで `summary.md` を生成する。短ければ何も起きない。
 
@@ -91,6 +70,6 @@ Bash で以下を実行する。`plan.md` が閾値（`JTFROM9_CC_WORKFLOW_SUMMA
 python3 "${CLAUDE_PLUGIN_ROOT}/python/maybe_spawn_summary.py" "<plan_path>"
 ```
 
-### 7. 完了報告
+### 6. 完了報告
 
-1〜2 行で、taskId と保存先 path、（あれば）前回 checkpoint からの差分範囲、summary 生成中かどうかをユーザに報告。
+1〜2 行で、taskId と保存先 path、前回タスクからの差分範囲、summary 生成中かどうかをユーザに報告。

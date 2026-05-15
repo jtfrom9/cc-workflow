@@ -56,7 +56,7 @@ claude plugin install jtfrom9-cc-workflow
 │   ├── regenerate_summary.py        ←   /summarise の本体（今開いている task の summary.md を再生成）
 │   ├── mark_task_open.py            ←   /restore から呼ばれて open_task_id を更新
 │   ├── relocate_plan.py             ←   PostToolUse(ExitPlanMode): plan ファイルを task 化
-│   └── checkpoint.py                ←   Stop フックの自動 checkpoint + /checkpoint コマンドの init ヘルパー (引数 hook / init)
+│   └── checkpoint.py                ←   checkpoint の本体（手動も自動も同じスクリプト。`--auto` で Stop フック）
 └── README.md
 ```
 
@@ -97,15 +97,17 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 - 万一 `.last_index` を失っても「既存フォルダの最大値 + 1」にフォールバックする
 - フォルダ・カウンタの両方が消えれば 0001 から再開する
 
-#### task.md の frontmatter で出所を区別
+#### task.md の frontmatter で出所と起動方法を区別
 
-`source:` フィールドで、task がどのフックから作られたかが分かる:
+`source:` は task が何を表すか、`trigger:` は誰が起動したかを示す:
 
-- `source: plan` — プランモードで承認された ExitPlanMode の plan を元に作られた (`python/relocate_plan.py`)
-- `source: checkpoint` — `/jtfrom9-cc-workflow:checkpoint` から手動で作られた (`python/checkpoint.py init` + Claude が要約を Write)
-- `source: checkpoint-auto` — Stop フックでトークン閾値を超えて自動採取された (`python/checkpoint.py hook`)
+| `source` | `trigger` | どこから作られたか |
+|---|---|---|
+| `plan` | (なし) | プランモードで承認された ExitPlanMode の plan (`python/relocate_plan.py`) |
+| `checkpoint` | `manual` | `/jtfrom9-cc-workflow:checkpoint` から手動採取 (`python/checkpoint.py`) |
+| `checkpoint` | `auto` | Stop フックでトークン閾値を超えて自動採取 (`python/checkpoint.py --auto`) |
 
-同じセッションで両方発火すると、論理上 1 つのタスクに対して task フォルダが 2 つ並ぶことがある。重複は許容する設計で、不要な方は手動で削除する。
+自動 checkpoint と手動 checkpoint は **同じスクリプト・同じ source・同じ task 構造** を持ち、違いは「誰が起動したか」と「plan.md にどこまで内容を書くか」だけ。手動の場合は Claude が plan.md を後から詳細内容で上書きする。
 
 `~/.jtfrom9-cc-workflow/` 配下は実行時に自動で作られる。壊れても消しても良い。
 
@@ -158,7 +160,8 @@ created_at: "<ISO 時刻>"
 project: "<project>"
 project_root: "<cwd>"
 session_id: "<sid>"
-source: checkpoint-auto
+source: checkpoint
+trigger: auto
 tokens: <現在トークン数>
 prev_task_id: "<前回 taskId>"
 prev_tokens: <前回トークン数>
@@ -174,11 +177,11 @@ status: pending
 - 採取時点で要約も走らせない（コスト・遅延・サンドボックス制約を避けるため）
 - 中身の要約が欲しくなったら、後から `/jtfrom9-cc-workflow:summarise` を手動実行する
 
-スクリプト: [`python/checkpoint.py`](python/checkpoint.py) (`hook` モード)
+スクリプト: [`python/checkpoint.py`](python/checkpoint.py) （`--auto` 起動時）
 
 | 変数 | デフォルト | 意味 |
 |---|---|---|
-| `JTFROM9_CC_WORKFLOW_AUTO_CHECKPOINT` | `1` | `0` で hook モード無効化 |
+| `JTFROM9_CC_WORKFLOW_AUTO_CHECKPOINT` | `1` | `0` で自動採取を無効化 |
 | `JTFROM9_CC_WORKFLOW_CHECKPOINT_PCT` | `30` | 採取の閾値パーセント |
 | `JTFROM9_CC_WORKFLOW_MAX_CONTEXT_TOKENS` | `200000` | 別セッション判定の母数。Opus 1M variant 利用時は `1000000` に |
 
@@ -266,7 +269,7 @@ status: pending
 
 挙動:
 
-- Python で `python/checkpoint.py init <slug>` を呼び、task ディレクトリと採番済みパス、加えて **同一セッション内の直前 checkpoint 情報** を取得する
+- Python で `python/checkpoint.py "<title>"` を呼び、task ディレクトリを作成して採番済みパスと **このプロジェクトの直前タスク情報** (auto/manual 問わず最大 index のもの) を受け取る。スクリプトが plan.md / task.md の雛形まで書き込むので、Claude はそのあと plan.md を詳細内容で上書きする
 - 直前 checkpoint がある場合は、Claude がその `plan.md` を Read して内容を把握し、**「以降 → 今」までの差分を詳細に** 新しい `plan.md` に書き出す
 - 直前 checkpoint が無い場合は、セッション最初から現時点までの全内容を対象に書き出す
 - 続けて Write ツールで `task.md` を書く（frontmatter に `prev_checkpoint_taskid` が入って連鎖する）
@@ -279,7 +282,7 @@ status: pending
 
 実体:
 - コマンド: [`commands/checkpoint.md`](commands/checkpoint.md)
-- ヘルパー: [`python/checkpoint.py`](python/checkpoint.py) (`init` サブコマンド)
+- ヘルパー: [`python/checkpoint.py`](python/checkpoint.py)（自動採取と同じスクリプト、引数にタイトルを渡す）
 
 ### `/jtfrom9-cc-workflow:summarise`: 今開いている task の summary.md を再生成
 
