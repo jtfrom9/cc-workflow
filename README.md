@@ -212,7 +212,7 @@ UserPromptSubmit
  → Claude が実装に進む
 ```
 
-- プロジェクト名: `git rev-parse --show-toplevel` のベース名、git 外なら `$PWD` のベース名
+- プロジェクト名: Claude Code セッションの cwd のベース名（git は参照しない）
 - 「直近に書かれた .md」判定: `plansDirectory` 内で 5 分以内に変更された `*.md` の最新
 
 スクリプト: [`python/relocate_plan.py`](python/relocate_plan.py)
@@ -321,7 +321,7 @@ open task が無い場合（restore 等まだ何も操作していない場合�
 （プラグインのコマンドは常に `<plugin-name>:<command>` 形式で名前空間化されるため、フルネームで呼ぶ。）
 
 挙動:
-- 現在のプロジェクト名（git ルート or cwd のベース名）を判定
+- 現在のプロジェクト名（Claude Code セッションの cwd のベース名）を判定
 - `~/.jtfrom9-cc-workflow/tasks/<project>/<taskId>/` 配下の `task.md` / `plan.md` / `summary.md` を読み出してプロンプトに展開
 - Claude はその内容を踏まえて、ユーザの次の指示を待つ
 

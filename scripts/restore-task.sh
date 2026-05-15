@@ -13,11 +13,7 @@ set -uo pipefail
 DATA_DIR="${JTFROM9_CC_WORKFLOW_DIR:-$HOME/.jtfrom9-cc-workflow}"
 TASKID="${1:-}"
 
-if PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
-  PROJECT=$(basename "$PROJECT_ROOT")
-else
-  PROJECT=$(basename "$PWD")
-fi
+PROJECT=$(basename "$PWD")
 
 PROJECT_TASKS="$DATA_DIR/tasks/$PROJECT"
 

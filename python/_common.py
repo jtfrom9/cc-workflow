@@ -65,22 +65,15 @@ def write_continue_false(reason: str) -> None:
 def get_project_info(cwd: Path | None = None) -> tuple[str, Path]:
     """Return (project_name, project_root_path).
 
-    Uses ``git rev-parse --show-toplevel``; falls back to the cwd's basename.
+    ``project_root`` is Claude Code's current working directory (= the cwd
+    inherited by the hook / script process). ``project_name`` is its basename.
+
+    We intentionally do NOT walk up to the git toplevel here: the user's cwd
+    is the most direct signal of "which project I'm working on right now",
+    and a single repository can hold multiple distinct subprojects that we
+    want to isolate task storage for.
     """
     cwd = cwd or Path.cwd()
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            root = Path(result.stdout.strip())
-            return root.name, root
-    except Exception:
-        pass
     return cwd.name, cwd
 
 
