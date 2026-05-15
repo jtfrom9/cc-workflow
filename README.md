@@ -259,6 +259,7 @@ status: pending
 - 直前 checkpoint がある場合は、Claude がその `plan.md` を Read して内容を把握し、**「以降 → 今」までの差分を詳細に** 新しい `plan.md` に書き出す
 - 直前 checkpoint が無い場合は、セッション最初から現時点までの全内容を対象に書き出す
 - 続けて Write ツールで `task.md` を書く（frontmatter に `prev_checkpoint_taskid` が入って連鎖する）
+- `plan.md` が閾値行数を超えていれば `python/maybe_spawn_summary.py` 経由で `summary.md` を非同期生成（短ければスキップ）
 - 引数があれば taskId のスラグ部分にも反映 (省略時 "checkpoint")
 
 「詳細に」とは具体的に、採用方針・却下案・触ったファイル・コミット・走らせたコマンド・未解決の課題・トレードオフ・参考情報まで漏らさず残すこと。短くまとめようとせず、**後でこの plan.md だけ読めば作業を完全に再開できる** 情報量を目指す。

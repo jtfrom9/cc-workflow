@@ -76,6 +76,14 @@ prev_checkpoint_taskid: "<prev_checkpoint_taskid>"   # ← 前回 checkpoint が
 
 `prev_checkpoint_taskid` が空のときは frontmatter の該当行を省く。
 
-### 5. 完了報告
+### 5. summary.md の生成判定（plan.md が長い場合のみ）
 
-1〜2 行で、taskId と保存先 path、（あれば）前回 checkpoint からの差分範囲をユーザに報告。
+Bash で以下を実行する。`plan.md` が閾値（`JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行）を超えていれば、ヘルパが裏で `claude -p` を呼んで `summary.md` を生成する。短ければ何も起きない。
+
+```sh
+python3 "${CLAUDE_PLUGIN_ROOT}/python/maybe_spawn_summary.py" "<plan_path>"
+```
+
+### 6. 完了報告
+
+1〜2 行で、taskId と保存先 path、（あれば）前回 checkpoint からの差分範囲、summary 生成中かどうかをユーザに報告。
