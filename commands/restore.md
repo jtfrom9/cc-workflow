@@ -9,6 +9,6 @@ taskId `$ARGUMENTS` の保存済みプランを復元します。以下にその
 
 ---
 
-!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/restore-task.sh" "$ARGUMENTS"`
+!`bash "${CLAUDE_PLUGIN_ROOT}/tools/restore-task.sh" "$ARGUMENTS"`
 
-!`python3 "${CLAUDE_PLUGIN_ROOT}/python/mark_task_open.py" "$ARGUMENTS"`
+!`python3 "${CLAUDE_PLUGIN_ROOT}/tools/mark_task_open.py" "$ARGUMENTS"`

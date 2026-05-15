@@ -34,7 +34,7 @@ Bash ツールで以下を実行し、出力 (key=value 形式) をパースし�
 - `prev_tokens`
 
 ```sh
-python3 "${CLAUDE_PLUGIN_ROOT}/python/checkpoint.py" "<手順 1 で決めたタイトル>"
+python3 "${CLAUDE_PLUGIN_ROOT}/tools/checkpoint.py" "<手順 1 で決めたタイトル>"
 ```
 
 このコマンドが既に **plan.md と task.md の雛形** をその task ディレクトリに書き込んでいる（メタ情報のみ）。次の手順で plan.md を中身入りで上書きする。
@@ -67,7 +67,7 @@ Write ツールで `plan_path` を上書きする。冒頭に `# <手順 1 で�
 Bash で以下を実行する。`plan.md` が閾値（`JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行）を超えていれば、ヘルパが裏で `claude -p` を呼んで `summary.md` を生成する。短ければ何も起きない。
 
 ```sh
-python3 "${CLAUDE_PLUGIN_ROOT}/python/maybe_spawn_summary.py" "<plan_path>"
+python3 "${CLAUDE_PLUGIN_ROOT}/tools/maybe_spawn_summary.py" "<plan_path>"
 ```
 
 ### 6. 完了報告

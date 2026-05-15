@@ -1,5 +1,5 @@
 #!/bin/bash
-# jtfrom9-cc-workflow/scripts/list-tasks.sh
+# jtfrom9-cc-workflow/tools/list-tasks.sh
 #
 # /jtfrom9-cc-workflow:tasks から呼ばれる。
 # 現在のプロジェクトの task 一覧を Markdown テーブルで出力する。

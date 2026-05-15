@@ -1,5 +1,5 @@
 #!/bin/bash
-# jtfrom9-cc-workflow/scripts/restore-task.sh
+# jtfrom9-cc-workflow/tools/restore-task.sh
 #
 # /jtfrom9-restore <taskId> から呼ばれる。
 # プロジェクト名を判定して該当 taskId フォルダ配下の

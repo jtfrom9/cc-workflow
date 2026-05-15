@@ -47,17 +47,17 @@ claude plugin install jtfrom9-cc-workflow
 │   ├── checkpoint.md                ← /jtfrom9-cc-workflow:checkpoint で議論を保存
 │   ├── summarise.md                 ← /jtfrom9-cc-workflow:summarise で開いている task の summary.md 再生成
 │   └── tasks.md                     ← /jtfrom9-cc-workflow:tasks で task 一覧表示
-├── scripts/                         ← シンプルな bash ヘルパー (commands から呼ばれる)
-│   ├── restore-task.sh              ←   restore コマンドのヘルパー
-│   └── list-tasks.sh                ←   tasks コマンドのヘルパー
-├── python/                          ← 複雑なロジックは Python (UTF-8 / 非同期 / 状態管理)
-│   ├── _common.py                   ←   共通ユーティリティ
+├── tools/                           ← Python ロジック + commands から呼ばれる bash ヘルパー (まとめてここ)
+│   ├── _common.py                   ←   共通ユーティリティ (Python)
 │   ├── _summarize_worker.py         ←   バックグラウンド要約ワーカー（失敗時は詳細を summary.md に書く）
+│   ├── checkpoint.py                ←   checkpoint の本体（手動も自動も同じスクリプト。`--auto` で Stop フック）
+│   ├── mark_task_open.py            ←   /restore から呼ばれて open_task_id を更新
 │   ├── maybe_spawn_summary.py       ←   plan.md が長ければ要約ワーカーを spawn
 │   ├── regenerate_summary.py        ←   /summarise の本体（今開いている task の summary.md を再生成）
-│   ├── mark_task_open.py            ←   /restore から呼ばれて open_task_id を更新
 │   ├── relocate_plan.py             ←   PostToolUse(ExitPlanMode): plan ファイルを task 化
-│   └── checkpoint.py                ←   checkpoint の本体（手動も自動も同じスクリプト。`--auto` で Stop フック）
+│   ├── status_line.py               ←   statusLine 用: コンテキスト使用量バー
+│   ├── list-tasks.sh                ←   tasks コマンドのヘルパー
+│   └── restore-task.sh              ←   restore コマンドのヘルパー
 └── README.md
 ```
 
@@ -104,9 +104,9 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 
 | `source` | `trigger` | どこから作られたか |
 |---|---|---|
-| `plan` | (なし) | プランモードで承認された ExitPlanMode の plan (`python/relocate_plan.py`) |
-| `checkpoint` | `manual` | `/jtfrom9-cc-workflow:checkpoint` から手動採取 (`python/checkpoint.py`) |
-| `checkpoint` | `auto` | Stop フックでトークン閾値を超えて自動採取 (`python/checkpoint.py --auto`) |
+| `plan` | (なし) | プランモードで承認された ExitPlanMode の plan (`tools/relocate_plan.py`) |
+| `checkpoint` | `manual` | `/jtfrom9-cc-workflow:checkpoint` から手動採取 (`tools/checkpoint.py`) |
+| `checkpoint` | `auto` | Stop フックでトークン閾値を超えて自動採取 (`tools/checkpoint.py --auto`) |
 
 自動 checkpoint と手動 checkpoint は **同じスクリプト・同じ source・同じ task 構造** を持ち、違いは「誰が起動したか」と「plan.md にどこまで内容を書くか」だけ。手動の場合は Claude が plan.md を後から詳細内容で上書きする。
 
@@ -182,7 +182,7 @@ status: pending
 - 採取時点で要約も走らせない（コスト・遅延・サンドボックス制約を避けるため）
 - 中身の要約が欲しくなったら、後から `/jtfrom9-cc-workflow:summarise` を手動実行する。自動 checkpoint のタスクなら、`summarise` は **JSONL から前回タスク以降の会話履歴を抜き出して plan.md に書き込んでから** 要約する（メタ情報のみの状態から会話入りに upgrade される）
 
-スクリプト: [`python/checkpoint.py`](python/checkpoint.py) （`--auto` 起動時）
+スクリプト: [`tools/checkpoint.py`](tools/checkpoint.py) （`--auto` 起動時）
 
 | 変数 | デフォルト | 意味 |
 |---|---|---|
@@ -214,12 +214,12 @@ status: pending
 承認
  → ExitPlanMode 実行: ~/.claude/plans/<slug>.md が書かれる
  → PostToolUse フック発火
- → python/relocate_plan.py:
+ → tools/relocate_plan.py:
      taskId 採番
      <slug>.md → ~/.jtfrom9-cc-workflow/tasks/<project>/<taskId>/plan.md
      task.md (frontmatter + 自由記述欄) を生成
      summary.md を生成 (長いプランは裏で claude -p、短ければ静的文言)
- → python/relocate_plan.py: continue:false でターン停止 (デフォルト時)
+ → tools/relocate_plan.py: continue:false でターン停止 (デフォルト時)
    → ユーザに制御が戻る。プランファイルを確認 / 編集できる
  → ユーザが「進めて」「実装して」等と指示
  → Claude が実装に進む
@@ -228,7 +228,7 @@ status: pending
 - プロジェクト名: **claude を起動した時の cwd** のベース名 (`SessionStart` で `state/<sid>/cwd` に記録、git は参照しない)。フック発火時の cwd ではないので、セッション中に Claude Code の cwd がサブディレクトリへシフトしても project は変わらない
 - 「直近に書かれた .md」判定: `plansDirectory` 内で 5 分以内に変更された `*.md` の最新
 
-スクリプト: [`python/relocate_plan.py`](python/relocate_plan.py)
+スクリプト: [`tools/relocate_plan.py`](tools/relocate_plan.py)
 
 #### task.md の中身
 
@@ -274,11 +274,11 @@ status: pending
 
 挙動:
 
-- Python で `python/checkpoint.py "<title>"` を呼び、task ディレクトリを作成して採番済みパスと **このプロジェクトの直前タスク情報** (auto/manual 問わず最大 index のもの) を受け取る。スクリプトが plan.md / task.md の雛形まで書き込むので、Claude はそのあと plan.md を詳細内容で上書きする
+- Python で `tools/checkpoint.py "<title>"` を呼び、task ディレクトリを作成して採番済みパスと **このプロジェクトの直前タスク情報** (auto/manual 問わず最大 index のもの) を受け取る。スクリプトが plan.md / task.md の雛形まで書き込むので、Claude はそのあと plan.md を詳細内容で上書きする
 - 直前 checkpoint がある場合は、Claude がその `plan.md` を Read して内容を把握し、**「以降 → 今」までの差分を詳細に** 新しい `plan.md` に書き出す
 - 直前 checkpoint が無い場合は、セッション最初から現時点までの全内容を対象に書き出す
 - 続けて Write ツールで `task.md` を書く（frontmatter に `prev_checkpoint_taskid` が入って連鎖する）
-- `plan.md` が閾値行数を超えていれば `python/maybe_spawn_summary.py` 経由で `summary.md` を非同期生成（短ければスキップ）
+- `plan.md` が閾値行数を超えていれば `tools/maybe_spawn_summary.py` 経由で `summary.md` を非同期生成（短ければスキップ）
 - taskId のスラグ部分は Claude が会話内容から短いタイトルを自分で決めて付ける（ユーザの追加引数は不要）
 
 「詳細に」とは具体的に、採用方針・却下案・触ったファイル・コミット・走らせたコマンド・未解決の課題・トレードオフ・参考情報まで漏らさず残すこと。短くまとめようとせず、**後でこの plan.md だけ読めば作業を完全に再開できる** 情報量を目指す。
@@ -287,7 +287,7 @@ status: pending
 
 実体:
 - コマンド: [`commands/checkpoint.md`](commands/checkpoint.md)
-- ヘルパー: [`python/checkpoint.py`](python/checkpoint.py)（自動採取と同じスクリプト、引数にタイトルを渡す）
+- ヘルパー: [`tools/checkpoint.py`](tools/checkpoint.py)（自動採取と同じスクリプト、引数にタイトルを渡す）
 
 ### `/jtfrom9-cc-workflow:summarise`: 今開いている task の summary.md を再生成
 
@@ -326,8 +326,8 @@ open task が無い場合（restore 等まだ何も操作していない場合�
 
 実体:
 - コマンド: [`commands/summarise.md`](commands/summarise.md)
-- ヘルパー: [`python/regenerate_summary.py`](python/regenerate_summary.py)
-- open task の記録: [`python/mark_task_open.py`](python/mark_task_open.py) (`/restore` から呼ばれる) + 各 task 作成ヘルパー
+- ヘルパー: [`tools/regenerate_summary.py`](tools/regenerate_summary.py)
+- open task の記録: [`tools/mark_task_open.py`](tools/mark_task_open.py) (`/restore` から呼ばれる) + 各 task 作成ヘルパー
 
 ### `/jtfrom9-cc-workflow:tasks`: task 一覧表示
 
@@ -338,7 +338,7 @@ open task が無い場合（restore 等まだ何も操作していない場合�
 
 実体:
 - コマンド: [`commands/tasks.md`](commands/tasks.md)
-- ヘルパー: [`scripts/list-tasks.sh`](scripts/list-tasks.sh)
+- ヘルパー: [`tools/list-tasks.sh`](tools/list-tasks.sh)
 
 ### `/jtfrom9-cc-workflow:restore <taskId>`: 保存済みプランの復元
 
@@ -356,7 +356,7 @@ open task が無い場合（restore 等まだ何も操作していない場合�
 
 実体:
 - コマンド: [`commands/restore.md`](commands/restore.md)
-- ヘルパー: [`scripts/restore-task.sh`](scripts/restore-task.sh)
+- ヘルパー: [`tools/restore-task.sh`](tools/restore-task.sh)
 
 ## 設計方針
 
@@ -369,8 +369,8 @@ open task が無い場合（restore 等まだ何も操作していない場合�
 ## 動作要件
 
 - Claude Code CLI
-- **Python 3.9+**: 複雑なフック (`python/relocate_plan.py` / `checkpoint.py` ほか) は Python。標準ライブラリのみ依存
-- **bash**: シンプルなフック (`hooks/*.sh`) と一覧／復元ヘルパー (`scripts/*.sh`) は bash。`jq` も依存
+- **Python 3.9+**: 複雑なフック (`tools/relocate_plan.py` / `checkpoint.py` ほか) は Python。標準ライブラリのみ依存
+- **bash**: シンプルなフック (`hooks/*.sh`) と一覧／復元ヘルパー (`tools/*.sh`) は bash。`jq` も依存
 - 動作環境別:
   - **macOS / Linux**: bash・python3 ともに通常標準で入っている
   - **Windows**: Git for Windows (Git Bash) + Python 3 をインストールしておく必要あり。`plugin.json` のフックは `command: "bash"` / `command: "python3"` の args 形式で起動するため、シェル種別の違いを吸収できる

@@ -7,7 +7,7 @@ settings file loaded via ``--settings``)::
     {
       "statusLine": {
         "type": "command",
-        "command": "python3 /<absolute path to plugin>/python/status_line.py"
+        "command": "python3 /<absolute path to plugin>/tools/status_line.py"
       }
     }
 
