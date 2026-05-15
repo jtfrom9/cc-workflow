@@ -1,12 +1,12 @@
 #!/bin/bash
-# jtfrom9-cc-workflow/tools/list-tasks.sh
+# cc-workflow/tools/list-tasks.sh
 #
-# /jtfrom9-cc-workflow:tasks から呼ばれる。
+# /cc-workflow:tasks から呼ばれる。
 # 現在のプロジェクトの task 一覧を Markdown テーブルで出力する。
 
 set -uo pipefail
 
-DATA_DIR="${JTFROM9_CC_WORKFLOW_DIR:-$HOME/.jtfrom9-cc-workflow}"
+DATA_DIR="${CC_WORKFLOW_DIR:-$HOME/.cc-workflow}"
 
 PROJECT=$(basename "$PWD")
 

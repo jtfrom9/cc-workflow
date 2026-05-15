@@ -1,4 +1,4 @@
-# jtfrom9-cc-workflow — 対話・作業ルール
+# cc-workflow — 対話・作業ルール
 
 このファイルは `hooks/session-start.sh` 経由で `additionalContext` として
 セッション開始時に Claude のコンテキストに注入されます。

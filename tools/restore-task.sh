@@ -1,7 +1,7 @@
 #!/bin/bash
-# jtfrom9-cc-workflow/tools/restore-task.sh
+# cc-workflow/tools/restore-task.sh
 #
-# /jtfrom9-restore <taskId> から呼ばれる。
+# /cc-workflow:restore <taskId> から呼ばれる。
 # プロジェクト名を判定して該当 taskId フォルダ配下の
 # plan.md / task.md / summary.md を 1 つの出力にまとめて返す。
 #
@@ -10,7 +10,7 @@
 
 set -uo pipefail
 
-DATA_DIR="${JTFROM9_CC_WORKFLOW_DIR:-$HOME/.jtfrom9-cc-workflow}"
+DATA_DIR="${CC_WORKFLOW_DIR:-$HOME/.cc-workflow}"
 TASKID="${1:-}"
 
 PROJECT=$(basename "$PWD")

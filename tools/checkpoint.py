@@ -99,12 +99,12 @@ def _write_plan_md(
             f"自動 checkpoint。トリガ: {trigger_reason}\n\n"
             f"メタ情報は `task.md` の frontmatter を、"
             f"会話本文はセッショントランスクリプト `{transcript}` を参照してください。\n"
-            f"要約が必要なら `/jtfrom9-cc-workflow:summarise` を実行。\n"
+            f"要約が必要なら `/cc-workflow:summarise` を実行。\n"
         )
     else:
         body = (
             f"# {task_id}\n\n"
-            f"_(/jtfrom9-cc-workflow:checkpoint の雛形。"
+            f"_(/cc-workflow:checkpoint の雛形。"
             f" Claude が直後にこのファイルを詳細内容で上書きします。"
             f" 上書きされていなければエラー。)_\n"
         )
@@ -127,7 +127,7 @@ def _write_task_md(
 ) -> None:
     body = (
         "ExitPlanMode・自動 Stop フック・/checkpoint コマンドのいずれかから"
-        " jtfrom9-cc-workflow が採取した checkpoint。"
+        " cc-workflow が採取した checkpoint。"
     )
     fm_lines = [
         "---",
@@ -167,12 +167,12 @@ def main() -> int:
     args = [a for a in args if a != "--auto"]
     slug_arg = args[0] if args else ""
 
-    threshold_pct = float(os.environ.get("JTFROM9_CC_WORKFLOW_CHECKPOINT_PCT", "30")) / 100.0
-    max_tokens = int(os.environ.get("JTFROM9_CC_WORKFLOW_MAX_CONTEXT_TOKENS", "200000"))
+    threshold_pct = float(os.environ.get("CC_WORKFLOW_CHECKPOINT_PCT", "30")) / 100.0
+    max_tokens = int(os.environ.get("CC_WORKFLOW_MAX_CONTEXT_TOKENS", "200000"))
 
     # Resolve session id
     if auto_mode:
-        if os.environ.get("JTFROM9_CC_WORKFLOW_AUTO_CHECKPOINT", "1") != "1":
+        if os.environ.get("CC_WORKFLOW_AUTO_CHECKPOINT", "1") != "1":
             return 0
         data = _common.read_hook_input()
         sid = data.get("session_id") or ""

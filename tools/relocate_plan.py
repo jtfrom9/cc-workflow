@@ -2,13 +2,13 @@
 """PostToolUse(ExitPlanMode) hook.
 
 1. Find the just-written plan file in the default plansDirectory.
-2. Move it to ~/.jtfrom9-cc-workflow/tasks/<project>/<taskId>/plan.md
+2. Move it to ~/.cc-workflow/tasks/<project>/<taskId>/plan.md
    with a content-derived taskId.
 3. Write task.md (frontmatter + body).
 4. Generate summary.md asynchronously when plan.md exceeds the line threshold.
 5. Optionally emit `{continue: false, stopReason: ...}` to stop the turn so the
    user can review the plan before implementation starts (controlled by
-   JTFROM9_CC_WORKFLOW_PAUSE_AFTER_PLAN, default on).
+   CC_WORKFLOW_PAUSE_AFTER_PLAN, default on).
 """
 
 from __future__ import annotations
@@ -24,12 +24,12 @@ import _common  # noqa: E402
 
 
 SOURCE_PLANS = Path(
-    os.environ.get("JTFROM9_CC_WORKFLOW_SOURCE_PLANS")
+    os.environ.get("CC_WORKFLOW_SOURCE_PLANS")
     or (Path.home() / ".claude" / "plans")
 )
-PAUSE_AFTER_PLAN = os.environ.get("JTFROM9_CC_WORKFLOW_PAUSE_AFTER_PLAN", "1") == "1"
+PAUSE_AFTER_PLAN = os.environ.get("CC_WORKFLOW_PAUSE_AFTER_PLAN", "1") == "1"
 SUMMARY_THRESHOLD_LINES = int(
-    os.environ.get("JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES", "50")
+    os.environ.get("CC_WORKFLOW_SUMMARY_THRESHOLD_LINES", "50")
 )
 
 

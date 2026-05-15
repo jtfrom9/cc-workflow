@@ -1,8 +1,8 @@
 #!/bin/bash
-# jtfrom9-cc-workflow/hooks/session-start.sh
+# cc-workflow/hooks/session-start.sh
 #
 # SessionStart フックから呼ばれる。やること:
-#   1. systemMessage `jtfrom9-cc-workflow` を表示 (プラグイン有効化の確認)
+#   1. systemMessage `cc-workflow` を表示 (プラグイン有効化の確認)
 #   2. 現在の pwd を state/<sid>/cwd に記録
 #      → 後段のフックが「セッション起動時 cwd」を project_root として固定できる
 #   3. プラグイン同梱の CLAUDE.md (対話ルール) を読んで additionalContext として注入
@@ -14,7 +14,7 @@
 
 set -uo pipefail
 
-DATA_DIR="${JTFROM9_CC_WORKFLOW_DIR:-$HOME/.jtfrom9-cc-workflow}"
+DATA_DIR="${CC_WORKFLOW_DIR:-$HOME/.cc-workflow}"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-}"
 
 INPUT=$(cat 2>/dev/null || true)
@@ -31,7 +31,7 @@ if [ -n "$PLUGIN_ROOT" ] && [ -f "$PLUGIN_ROOT/CLAUDE.md" ]; then
 fi
 
 jq -nc \
-  --arg msg "jtfrom9-cc-workflow" \
+  --arg msg "cc-workflow" \
   --arg ctx "$ADDITIONAL_CONTEXT" \
   '
   if ($ctx | length) > 0 then

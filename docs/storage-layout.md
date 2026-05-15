@@ -1,9 +1,9 @@
 # ストレージレイアウト
 
-プラグインのランタイム状態はすべてホーム配下の `~/.jtfrom9-cc-workflow/` に置かれる。リポジトリ側には書き込まない。
+プラグインのランタイム状態はすべてホーム配下の `~/.cc-workflow/` に置かれる。リポジトリ側には書き込まない。
 
 ```
-~/.jtfrom9-cc-workflow/
+~/.cc-workflow/
 ├── tasks/<project>/<taskId>/   ← 保存済み task の本体（plan.md / task.md / summary.md）
 │   └── .last_index             ← プロジェクト内 index カウンタ（隠しファイル）
 ├── state/<session-id>/         ← セッション毎の sentinel
@@ -13,7 +13,7 @@
 └── log/                        ← 任意のデバッグログ置き場（現状未使用）
 ```
 
-`~/.jtfrom9-cc-workflow/` 配下は実行時に自動で作成される。途中で消したり書き換えても、必要なものは次の起動で再生成される。
+`~/.cc-workflow/` 配下は実行時に自動で作成される。途中で消したり書き換えても、必要なものは次の起動で再生成される。
 
 ## project の決定
 
@@ -57,11 +57,11 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 
 `state/<sid>/open_task_id` に taskId を 1 行で記録している。更新タイミング:
 
-- `/jtfrom9-cc-workflow:restore <taskId>` 実行時
-- `/jtfrom9-cc-workflow:checkpoint` で新 task を作った時
+- `/cc-workflow:restore <taskId>` 実行時
+- `/cc-workflow:checkpoint` で新 task を作った時
 - `ExitPlanMode` のプラン承認で task になった時
 
-`/jtfrom9-cc-workflow:summarise` はこのファイルを読んで再要約対象を決める。
+`/cc-workflow:summarise` はこのファイルを読んで再要約対象を決める。
 
 ## 状態のクリーンアップ
 
@@ -69,7 +69,7 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 
 ```sh
 # 30 日以上前の state/<sid>/ を消す
-find ~/.jtfrom9-cc-workflow/state -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+find ~/.cc-workflow/state -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
 ```
 
 `tasks/` 配下を消すか残すかは判断次第。プラン本文 + 採取時のメタ情報がすべて入っているので、長期保存しても 1 件 1 KB 程度に収まる。

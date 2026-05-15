@@ -4,7 +4,7 @@
 Usage:
     maybe_spawn_summary.py <plan_md_path>
 
-Reads JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES (default 50). If plan.md
+Reads CC_WORKFLOW_SUMMARY_THRESHOLD_LINES (default 50). If plan.md
 exceeds that line count, writes a placeholder summary.md in the same
 directory and spawns ``_summarize_worker.py`` detached. Otherwise no-op.
 
@@ -31,7 +31,7 @@ def main() -> int:
         print(f"not a file: {plan_path}", file=sys.stderr)
         return 1
 
-    threshold = int(os.environ.get("JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES", "50"))
+    threshold = int(os.environ.get("CC_WORKFLOW_SUMMARY_THRESHOLD_LINES", "50"))
 
     try:
         lines = plan_path.read_text(encoding="utf-8").count("\n")

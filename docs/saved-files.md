@@ -1,6 +1,6 @@
 # 保存ファイルの中身
 
-`~/.jtfrom9-cc-workflow/tasks/<project>/<taskId>/` の各ファイルが、どの起動経路でどう書かれるかをまとめる。ストレージ全体の構造は [storage-layout.md](storage-layout.md) を参照。
+`~/.cc-workflow/tasks/<project>/<taskId>/` の各ファイルが、どの起動経路でどう書かれるかをまとめる。ストレージ全体の構造は [storage-layout.md](storage-layout.md) を参照。
 
 ## 起動経路と `source` / `trigger` 区別
 
@@ -9,7 +9,7 @@
 | `source` | `trigger` | 経路 |
 |---|---|---|
 | `plan` | (なし) | プランモードで承認された ExitPlanMode の plan (`tools/relocate_plan.py`) |
-| `checkpoint` | `manual` | `/jtfrom9-cc-workflow:checkpoint` から手動採取 (`tools/checkpoint.py`) |
+| `checkpoint` | `manual` | `/cc-workflow:checkpoint` から手動採取 (`tools/checkpoint.py`) |
 | `checkpoint` | `auto` | Stop フックでトークン閾値を超えて自動採取 (`tools/checkpoint.py --auto`) |
 
 `checkpoint` の `manual` / `auto` は **同じスクリプト・同じ task 構造** を持つ。違いは「起動経路」と「plan.md にどこまで内容を書くか」だけ。
@@ -26,14 +26,14 @@
 自動 checkpoint。トリガ: <発火理由文>
 
 メタ情報は task.md を、会話本文はセッショントランスクリプト `<transcript path>` を参照してください。
-要約が必要なら `/jtfrom9-cc-workflow:summarise` を実行。
+要約が必要なら `/cc-workflow:summarise` を実行。
 ```
 
 採取時に本文を書き込まないのは、コスト・遅延・サンドボックス制約を避けるため。あとから `/summarise` を叩くと、`tools/regenerate_summary.py` が JSONL から会話履歴を抜き出してこの `plan.md` を上書きする（自動 checkpoint 限定の挙動）。
 
 ### 手動 checkpoint (`trigger: manual`)
 
-スクリプトはまず雛形だけ書き込み、その直後に Claude が `/jtfrom9-cc-workflow:checkpoint` の slash command 本文に従って **詳細な差分内容で plan.md を上書きする**:
+スクリプトはまず雛形だけ書き込み、その直後に Claude が `/cc-workflow:checkpoint` の slash command 本文に従って **詳細な差分内容で plan.md を上書きする**:
 
 - 採用した方針・却下案（理由つき）
 - 触ったファイル（追加・変更・削除）
@@ -85,7 +85,7 @@ status: pending
 
 ## `summary.md`
 
-`plan.md` が閾値 (`JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行) を超えたときだけ生成される。生成は `tools/_summarize_worker.py` がバックグラウンドで `claude -p` を呼ぶ非同期処理。
+`plan.md` が閾値 (`CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行) を超えたときだけ生成される。生成は `tools/_summarize_worker.py` がバックグラウンドで `claude -p` を呼ぶ非同期処理。
 
 ### 成功時
 
@@ -116,10 +116,10 @@ status: pending
   <stderr 内容>
   ```
 
-再生成: `/jtfrom9-cc-workflow:summarise <taskId>`
+再生成: `/cc-workflow:summarise <taskId>`
 ```
 
-これが書かれていたら、`claude` バイナリが見えない／ラッパー越しで TTY を要求している／タイムアウト等の原因がここから特定できる。回避策は環境変数 `JTFROM9_CC_WORKFLOW_CLAUDE_CMD` で直接の `claude` バイナリパスを指定するか、`false` を渡して要約呼び出し自体を抑制する。
+これが書かれていたら、`claude` バイナリが見えない／ラッパー越しで TTY を要求している／タイムアウト等の原因がここから特定できる。回避策は環境変数 `CC_WORKFLOW_CLAUDE_CMD` で直接の `claude` バイナリパスを指定するか、`false` を渡して要約呼び出し自体を抑制する。
 
 ### 短い `plan.md` の場合
 

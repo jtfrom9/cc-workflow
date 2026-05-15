@@ -1,4 +1,4 @@
-"""Shared utilities for jtfrom9-cc-workflow Python hooks/scripts.
+"""Shared utilities for cc-workflow Python hooks/scripts.
 
 Standard library only. Cross-platform (macOS / Linux / Windows).
 """
@@ -20,11 +20,11 @@ from pathlib import Path
 # ----------------------------------------------------------------------
 
 def data_dir() -> Path:
-    """Plugin runtime data root. Honors JTFROM9_CC_WORKFLOW_DIR."""
-    d = os.environ.get("JTFROM9_CC_WORKFLOW_DIR")
+    """Plugin runtime data root. Honors CC_WORKFLOW_DIR."""
+    d = os.environ.get("CC_WORKFLOW_DIR")
     if d:
         return Path(d)
-    return Path.home() / ".jtfrom9-cc-workflow"
+    return Path.home() / ".cc-workflow"
 
 
 def state_dir_for(session_id: str) -> Path:
@@ -488,13 +488,13 @@ def python_executable() -> str:
 def claude_command() -> list[str]:
     """Return the argv prefix used to invoke ``claude -p`` for background work.
 
-    Defaults to ``["claude"]``. Overridable via ``JTFROM9_CC_WORKFLOW_CLAUDE_CMD``
+    Defaults to ``["claude"]``. Overridable via ``CC_WORKFLOW_CLAUDE_CMD``
     (parsed with :func:`shlex.split`) when the user's environment routes the
     ``claude`` binary through a wrapper that doesn't tolerate non-TTY callers
     (e.g. docker / sandbox wrappers requiring ``-it``). Point this at the real
     underlying binary, or at a stub like ``false`` to disable summary calls.
     """
-    raw = os.environ.get("JTFROM9_CC_WORKFLOW_CLAUDE_CMD", "").strip()
+    raw = os.environ.get("CC_WORKFLOW_CLAUDE_CMD", "").strip()
     if raw:
         import shlex
         return shlex.split(raw)

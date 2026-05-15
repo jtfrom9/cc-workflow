@@ -26,10 +26,10 @@ import _common  # noqa: E402
 def _hint_when_no_open_task(project: str) -> None:
     print("**現在開いている task はありません。**")
     print()
-    print("先に `/jtfrom9-cc-workflow:restore <taskId>` で task を読み込んでから、")
-    print("`/jtfrom9-cc-workflow:summarise` を実行してください。")
+    print("先に `/cc-workflow:restore <taskId>` で task を読み込んでから、")
+    print("`/cc-workflow:summarise` を実行してください。")
     print()
-    print(f"プロジェクト `{project}` の taskId は `/jtfrom9-cc-workflow:tasks` で確認できます。")
+    print(f"プロジェクト `{project}` の taskId は `/cc-workflow:tasks` で確認できます。")
 
 
 def _enrich_plan_with_session_slice(task_dir: Path, project_root: Path) -> bool:
@@ -99,8 +99,8 @@ def main() -> int:
             f"開いていた taskId `{taskid}` がプロジェクト `{project}` に見つかりません。"
         )
         print(
-            "`/jtfrom9-cc-workflow:tasks` で一覧を見て、改めて "
-            "`/jtfrom9-cc-workflow:restore <taskId>` してください。"
+            "`/cc-workflow:tasks` で一覧を見て、改めて "
+            "`/cc-workflow:restore <taskId>` してください。"
         )
         return 0
 

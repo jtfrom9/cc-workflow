@@ -3,7 +3,7 @@ description: これまでの議論を要約して checkpoint task として明�
 allowed-tools: Bash, Read, Write
 ---
 
-これまでの会話を **詳細に**（甘くまとめずに）拾って、jtfrom9-cc-workflow の **checkpoint task** として保存してください。
+これまでの会話を詳細に拾って、cc-workflow の checkpoint task として保存してください。
 ユーザは追加の引数を渡さない。タイトル（taskId のスラグ部分）は **これから保存する内容に合わせて Claude が自分で決める**。
 
 ## 実装手順
@@ -44,7 +44,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/tools/checkpoint.py" "<手順 1 で決めたタ�
 `prev_plan_path` が空でなければ、Read ツールでその plan.md を読み、**何が既に記録済みか** を把握する。
 `prev_plan_path` が空の場合は、セッションの最初から現時点までが対象。
 
-### 4. plan.md を書く（**甘くまとめないこと**）
+### 4. plan.md を書く
 
 Write ツールで `plan_path` を上書きする。冒頭に `# <手順 1 で決めたタイトル>` を入れる。
 対象範囲は **前回タスク以降から現時点までの差分**（前回が無ければセッション全体）。
@@ -64,7 +64,7 @@ Write ツールで `plan_path` を上書きする。冒頭に `# <手順 1 で�
 
 ### 5. summary.md の生成判定（plan.md が長い場合のみ）
 
-Bash で以下を実行する。`plan.md` が閾値（`JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行）を超えていれば、ヘルパが裏で `claude -p` を呼んで `summary.md` を生成する。短ければ何も起きない。
+Bash で以下を実行する。`plan.md` が閾値（`CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行）を超えていれば、ヘルパが裏で `claude -p` を呼んで `summary.md` を生成する。短ければ何も起きない。
 
 ```sh
 python3 "${CLAUDE_PLUGIN_ROOT}/tools/maybe_spawn_summary.py" "<plan_path>"
