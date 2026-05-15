@@ -40,8 +40,7 @@ claude plugin install jtfrom9-cc-workflow
 ├── .claude-plugin/
 │   └── plugin.json                  ← プラグインマニフェスト（フック宣言などはここ）
 ├── hooks/                           ← シンプルな bash フック
-│   ├── banner.sh                    ←   SessionStart で名前表示
-│   └── suggest-rename.sh            ←   UserPromptSubmit で /rename 提案
+│   └── banner.sh                    ←   SessionStart で名前表示
 ├── commands/
 │   ├── restore.md                   ← /jtfrom9-cc-workflow:restore <taskId> でプランを復元
 │   ├── checkpoint.md                ← /jtfrom9-cc-workflow:checkpoint で議論を保存
@@ -117,26 +116,6 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 `SessionStart` フックで `systemMessage` に `jtfrom9-cc-workflow` を表示する。プラグインが正しく有効化されていることを起動時に確認するためのもの。
 
 スクリプト: [`hooks/banner.sh`](hooks/banner.sh)
-
-### suggest-rename: セッション名付け忘れ防止
-
-長めの指示が一定回数続いたところで `/rename` を促す。
-
-- 仕掛け: `UserPromptSubmit` フック
-- 判定: ユーザ入力が一定長 (デフォルト 100 字) を超えたものを「大きな指示」としてカウント
-- 4 回目で 1 度だけ `systemMessage` で `/rename` を提案
-- 既に `/rename` を叩いていれば以後追跡しない
-- 1 セッション中 1 度提案したら以降は黙る
-
-スクリプト: [`hooks/suggest-rename.sh`](hooks/suggest-rename.sh)
-
-環境変数で閾値を調整できる:
-
-| 変数 | デフォルト | 意味 |
-|---|---|---|
-| `JTFROM9_CC_WORKFLOW_RENAME_THRESHOLD_CHARS` | `100` | 「大きな指示」と見なす最小文字数 |
-| `JTFROM9_CC_WORKFLOW_RENAME_THRESHOLD_COUNT` | `4` | 何回続いたら提案するか |
-| `JTFROM9_CC_WORKFLOW_DIR` | `$HOME/.jtfrom9-cc-workflow` | 実行時データ置き場のルート |
 
 ### checkpoint (hook モード): Stop でトークン使用量を見て自動採取
 
