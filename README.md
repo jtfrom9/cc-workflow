@@ -56,6 +56,7 @@ claude plugin install jtfrom9-cc-workflow
 │   ├── maybe_spawn_summary.py       ←   plan.md が長ければ要約ワーカーを spawn
 │   ├── regenerate_summary.py        ←   /summarise の本体（今開いている task の summary.md を再生成）
 │   ├── mark_task_open.py            ←   /restore から呼ばれて open_task_id を更新
+│   ├── status_line.py               ←   statusLine 用: コンテキスト残量表示
 │   ├── save_prompt_as_task.py       ←   UserPromptSubmit: 分類器付きの task 採取
 │   ├── relocate_plan.py             ←   PostToolUse(ExitPlanMode): plan ファイルを task 化
 │   └── init_checkpoint.py           ←   checkpoint コマンドのヘルパー
@@ -374,6 +375,38 @@ find ~/.jtfrom9-cc-workflow/state -mindepth 1 -maxdepth 1 -type d -mtime +30 -ex
 - `context-pressure`: 圧縮直前に `PreCompact` で重要情報を保存させる
 - `long-session-warn`: セッションが N 時間 / N ターンを超えたら警告
 
+## 補助: ステータスラインでコンテキスト残量を表示
+
+[`python/status_line.py`](python/status_line.py) を Claude Code の `statusLine` 設定に登録すると、画面下に現在のコンテキスト使用率が出る。
+表示例:
+
+```
+🧠 ██████░░░░ 575k/1M (58%) · claude-opus-4-7
+```
+
+### 使い方
+
+このリポジトリ直下の [`settings.json`](settings.json) に `statusLine` 設定を入れてあるので、プラグインと一緒に `--settings` で読ませる:
+
+```sh
+claude --plugin-dir ~/src/jtfrom9-cc-workflow \
+       --settings  ~/src/jtfrom9-cc-workflow/settings.json
+```
+
+リポジトリの絶対パスは `${HOME}/work/jtfrom9/claude-settings` を前提にしているので、別パスに置いている場合は `settings.json` の `command` を書き換える。
+
+### なぜプラグイン側で自動登録しないか
+
+`statusLine` は Claude Code のトップレベル設定で、プラグインから登録する仕組みがない（hooks / commands / agents / skills / mcpServers しか提供できない）。
+そのため `--plugin-dir` だけだとステータスラインは出ず、`--settings` 併用が必須。
+
+### 実装メモ
+
+- セッションの `~/.claude/projects/<encoded-cwd>/<sid>.jsonl` の末尾を走査し、直近のアシスタント発話の `message.usage` を読む
+- `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` をコンテキスト累積トークンとして扱う
+- モデル ID から大まかな最大コンテキスト窓を推定 (`[1m]` 付き → 1M、その他 Opus → 1M、Sonnet/Haiku → 200k)。公式に厳密な値が公開されていないため、目安として動く
+- `refreshInterval: 10` で 10 秒ごとに再実行される設定にしてある
+
 ## 既知の制限
 
-- プラグインは Claude Code のトップレベル設定（`plansDirectory` など）を上書きできない。プランファイルの整理は事後移動（`relocate-plan`）で対応している。
+- プラグインは Claude Code のトップレベル設定（`plansDirectory` / `statusLine` など）を上書きできない。プランファイルの整理は事後移動（`relocate-plan`）で、ステータスライン表示は手動 wire で対応している。
