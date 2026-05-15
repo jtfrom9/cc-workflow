@@ -45,9 +45,13 @@ claude plugin install jtfrom9-cc-workflow
 │   ├── save-prompt-as-task.sh       ← UserPromptSubmit で長めの指示を task として保存
 │   └── relocate-plan.sh             ← PostToolUse(ExitPlanMode) でプランを task に整理
 ├── commands/
-│   └── restore.md                   ← /jtfrom9-cc-workflow:restore <taskId> でプランを復元
+│   ├── restore.md                   ← /jtfrom9-cc-workflow:restore <taskId> でプランを復元
+│   ├── checkpoint.md                ← /jtfrom9-cc-workflow:checkpoint で議論を保存
+│   └── tasks.md                     ← /jtfrom9-cc-workflow:tasks で task 一覧表示
 ├── scripts/
-│   └── restore-task.sh              ← restore コマンドのヘルパー
+│   ├── restore-task.sh              ← restore コマンドのヘルパー
+│   ├── init-checkpoint.sh           ← checkpoint コマンドのヘルパー
+│   └── list-tasks.sh                ← tasks コマンドのヘルパー
 └── README.md
 ```
 
@@ -240,6 +244,30 @@ status: pending
 - ユーザが `plansDirectory` を別のディレクトリに設定している場合は `JTFROM9_CC_WORKFLOW_SOURCE_PLANS` でそちらを指定する。
 
 ## カスタムコマンド
+
+### `/jtfrom9-cc-workflow:checkpoint [スラグ]`: 明示的に議論を保存
+
+これまでの会話を Claude に要約させ、`source: checkpoint` の task として手動保存するコマンド。長くなったセッションの途中で「ここまでの結論を残してから続きをやる」のような区切りに使う。
+
+挙動:
+- Bash で [`scripts/init-checkpoint.sh`](scripts/init-checkpoint.sh) を呼び出して task ディレクトリと採番済みパスを準備
+- Claude が会話の要約を生成し、Write ツールで `plan.md` / `task.md` に書き込む
+- 引数があれば taskId のスラグ部分に使う (省略時は "checkpoint")
+
+実体:
+- コマンド: [`commands/checkpoint.md`](commands/checkpoint.md)
+- ヘルパー: [`scripts/init-checkpoint.sh`](scripts/init-checkpoint.sh)
+
+### `/jtfrom9-cc-workflow:tasks`: task 一覧表示
+
+現在のプロジェクトの全 task を表で表示する。`taskId` / 作成日時 / `source` / `status` がわかる。
+選んだ task を別セッションで読み戻したい場合は、ユーザ自身で `/clear` してから `/jtfrom9-cc-workflow:restore <taskId>` を実行する。
+
+(Claude Code のカスタムスラッシュコマンドは別のスラッシュコマンドを自動実行できない仕様のため、`/clear` と `/restore` の連鎖は提供しない。)
+
+実体:
+- コマンド: [`commands/tasks.md`](commands/tasks.md)
+- ヘルパー: [`scripts/list-tasks.sh`](scripts/list-tasks.sh)
 
 ### `/jtfrom9-cc-workflow:restore <taskId>`: 保存済みプランの復元
 
