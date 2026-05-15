@@ -127,21 +127,47 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 | `JTFROM9_CC_WORKFLOW_RENAME_THRESHOLD_COUNT` | `4` | 何回続いたら提案するか |
 | `JTFROM9_CC_WORKFLOW_DIR` | `$HOME/.jtfrom9-cc-workflow` | 実行時データ置き場のルート |
 
-### save-prompt-as-task: プランモードを忘れた指示も自動で task 化
+### save-prompt-as-task: プランモードを忘れた指示も内容で判定して自動 task 化
 
-ユーザがプランモードに入らずに長めの指示を送信した場合でも、`UserPromptSubmit` フックがその指示文をそのまま task として保存する。`relocate-plan` の補完的な役割。
+プランモードに入らずに指示を送信した場合でも、その内容が「一定規模のコード変更要求」であれば task として保存する。`relocate-plan` の補完的な役割。
 
-- 対象: 文字数が閾値以上で、`/` で始まらないプロンプト
-- 重複防止: 直前のプロンプトと完全一致するものはスキップ
-- 出力: 通常の task フォルダ構造（`plan.md` = ユーザ原文プロンプト、`task.md` に `source: prompt`、`summary.md` は長文時のみ）
-- ターン停止はしない（このフックは捕捉だけで、ユーザの作業フローは止めない）
+判定はバックグラウンドで Haiku に YES/NO で分類させる。フック自体は即時 return するので、ユーザ体感の遅延はない。task が出来上がるのは分類が終わった数秒〜十数秒後。
+
+処理フロー:
+
+```
+UserPromptSubmit
+ → save-prompt-as-task.sh
+     早期 exit:
+       - スラッシュコマンド (/ で始まる) → スキップ
+       - MIN_LEN_FOR_CLASSIFY 未満の文字数 → スキップ
+       - 前回プロンプトと完全一致 (state/<sid>/last_prompt_hash) → スキップ
+     バックグラウンド処理:
+       - claude -p --model haiku で YES/NO 分類
+       - YES なら task フォルダ作成 (plan.md = 原文プロンプト, task.md, summary.md は長文時のみ)
+       - NO なら何もしない
+```
+
+`task.md` の `source: prompt` で他のタスクと区別できる。判定結果は `classifier_decision` フィールドにも残る。
 
 スクリプト: [`hooks/save-prompt-as-task.sh`](hooks/save-prompt-as-task.sh)
 
 | 変数 | デフォルト | 意味 |
 |---|---|---|
 | `JTFROM9_CC_WORKFLOW_SAVE_PROMPT_AS_TASK` | `1` | `0` で無効化 |
-| `JTFROM9_CC_WORKFLOW_PROMPT_TASK_THRESHOLD_CHARS` | `100` | これ未満のプロンプトは捕捉しない |
+| `JTFROM9_CC_WORKFLOW_CLASSIFIER_MODEL` | `haiku` | 分類に使うモデル alias もしくはフル ID |
+| `JTFROM9_CC_WORKFLOW_MIN_LEN_FOR_CLASSIFY` | `20` | これ未満は分類器に投げず即スキップ |
+| `JTFROM9_CC_WORKFLOW_CLASSIFIER_INPUT_BYTES` | `2000` | 分類器に渡すプロンプト上限バイト数（トークン節約） |
+
+#### 再帰防止
+
+子 `claude -p` プロセスが同じ UserPromptSubmit フックを再帰発火しないよう、バックグラウンド処理開始時に環境変数 `_JTFROM9_CC_WORKFLOW_HOOK_RUNNING=1` を立てる。子プロセスでフックが呼ばれてもこの変数を見て即 exit する。
+
+#### 制約
+
+- 分類器はブレることがあるため、保守的に「不明なら NO」と判定するよう指示している
+- それでも誤判定はあり得る。task が増え過ぎたら `JTFROM9_CC_WORKFLOW_SAVE_PROMPT_AS_TASK=0` で無効化するか、不要 task を手動削除する
+- `claude -p` を呼ぶため Haiku の API トークンを少額消費する
 
 ### relocate-plan: プランをタスクフォルダにまとめて、承認後にいったん停止
 
