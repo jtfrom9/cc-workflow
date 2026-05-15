@@ -62,19 +62,40 @@ def write_continue_false(reason: str) -> None:
 # Project detection
 # ----------------------------------------------------------------------
 
-def get_project_info(cwd: Path | None = None) -> tuple[str, Path]:
+def get_project_info(
+    cwd: Path | None = None,
+    session_id: str | None = None,
+) -> tuple[str, Path]:
     """Return (project_name, project_root_path).
 
-    ``project_root`` is Claude Code's current working directory (= the cwd
-    inherited by the hook / script process). ``project_name`` is its basename.
+    Resolution order for ``project_root``:
 
-    We intentionally do NOT walk up to the git toplevel here: the user's cwd
-    is the most direct signal of "which project I'm working on right now",
-    and a single repository can hold multiple distinct subprojects that we
-    want to isolate task storage for.
+    1. The caller's explicit ``cwd``.
+    2. The cwd recorded by the SessionStart hook (``state/<sid>/cwd``).
+       This pins the project to where ``claude`` was launched, even if the
+       process cwd shifts later in the session (e.g. when a submodule
+       subdirectory becomes the active working location).
+    3. ``Path.cwd()`` (the hook process's current cwd) as a last resort.
+
+    ``project_name`` is the resolved root's basename. git is never consulted.
     """
-    cwd = cwd or Path.cwd()
-    return cwd.name, cwd
+    if cwd is not None:
+        return cwd.name, cwd
+
+    sid = session_id or detect_current_session_id()
+    if sid:
+        cwd_file = state_dir_for(sid) / "cwd"
+        if cwd_file.is_file():
+            try:
+                recorded = cwd_file.read_text(encoding="utf-8").strip()
+            except OSError:
+                recorded = ""
+            if recorded:
+                root = Path(recorded)
+                return root.name, root
+
+    fallback = Path.cwd()
+    return fallback.name, fallback
 
 
 # ----------------------------------------------------------------------

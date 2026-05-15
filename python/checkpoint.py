@@ -181,7 +181,7 @@ def main() -> int:
     else:
         sid = _common.detect_current_session_id()
 
-    project, project_root = _common.get_project_info()
+    project, project_root = _common.get_project_info(session_id=sid)
 
     # Look up the most recent task in this project (max index)
     prev_task = _common.latest_task_in_project(project)

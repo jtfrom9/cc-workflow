@@ -92,7 +92,7 @@ def main() -> int:
     data = _common.read_hook_input()
     sid = data.get("session_id", "")
 
-    project, project_root = _common.get_project_info()
+    project, project_root = _common.get_project_info(session_id=sid)
     project_tasks = _common.project_tasks_dir(project)
     project_tasks.mkdir(parents=True, exist_ok=True)
 

@@ -113,9 +113,14 @@ next_index = max(.last_index の値, 既存フォルダ名から抽出した最�
 
 ## 機能
 
-### banner: 起動確認バナー
+### banner: 起動確認バナー + 起動時 cwd の記録
 
-`SessionStart` フックで `systemMessage` に `jtfrom9-cc-workflow` を表示する。プラグインが正しく有効化されていることを起動時に確認するためのもの。
+`SessionStart` フックで以下 2 つを行う:
+
+1. `systemMessage` に `jtfrom9-cc-workflow` を表示（プラグインが有効化されているか起動時確認用）
+2. **`pwd` を `state/<sid>/cwd` に書き込む**
+
+(2) があるおかげで、後段の `checkpoint` / `relocate_plan` / `summarise` 等は **claude を起動した cwd** を `project_root` として固定できる。セッション中に Claude Code の cwd が `fondi-workspace/fondi-app/` のようなサブディレクトリにシフトしても、project_name が `fondi-app` に化けることはない。
 
 スクリプト: [`hooks/banner.sh`](hooks/banner.sh)
 
@@ -220,7 +225,7 @@ status: pending
  → Claude が実装に進む
 ```
 
-- プロジェクト名: Claude Code セッションの cwd のベース名（git は参照しない）
+- プロジェクト名: **claude を起動した時の cwd** のベース名 (`SessionStart` で `state/<sid>/cwd` に記録、git は参照しない)。フック発火時の cwd ではないので、セッション中に Claude Code の cwd がサブディレクトリへシフトしても project は変わらない
 - 「直近に書かれた .md」判定: `plansDirectory` 内で 5 分以内に変更された `*.md` の最新
 
 スクリプト: [`python/relocate_plan.py`](python/relocate_plan.py)

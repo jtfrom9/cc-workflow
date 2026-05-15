@@ -81,9 +81,9 @@ def _enrich_plan_with_session_slice(task_dir: Path, project_root: Path) -> bool:
 
 
 def main() -> int:
-    project, project_root = _common.get_project_info()
-
     sid = _common.detect_current_session_id()
+    project, project_root = _common.get_project_info(session_id=sid)
+
     if not sid:
         _hint_when_no_open_task(project)
         return 0
