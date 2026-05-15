@@ -256,6 +256,12 @@ def main() -> int:
     if sid:
         _common.mark_task_open(task_id, session_id=sid)
 
+    # Same size-based rule as every other task-creation path: if plan.md
+    # exceeds the line threshold, kick off summary generation. For auto
+    # mode the plan.md is metadata-only so this is effectively a no-op,
+    # but the call is made unconditionally so the rule is uniform.
+    _common.maybe_spawn_summary(task_dir / "plan.md")
+
     # Manual mode: print key=value so the slash command body can consume
     if not auto_mode:
         print(f"taskId={task_id}")

@@ -85,7 +85,7 @@ status: pending
 
 ## `summary.md`
 
-ExitPlanMode 由来の task と手動 checkpoint では、`plan.md` が閾値 (`CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行) を超えたときに生成される。自動 checkpoint では採取時に生成せず、後から `/cc-workflow:summarise` を実行したときに生成する。生成は `tools/_summarize_worker.py` がバックグラウンドで `claude -p` を呼ぶ非同期処理。
+`plan.md` が閾値 (`CC_WORKFLOW_SUMMARY_THRESHOLD_LINES`、デフォルト 50 行) を超えたときに生成される。判定は経路で分岐しない単一ルールで、`tools/_common.py:maybe_spawn_summary` が `plan.md` / `task.md` を書いた直後に必ず呼ばれる。自動 checkpoint は `plan.md` がメタ情報だけで通常は閾値未満なので結果として作られないだけ。生成は `tools/_summarize_worker.py` がバックグラウンドで `claude -p` を呼ぶ非同期処理。
 
 ### 成功時
 
@@ -132,5 +132,5 @@ ExitPlanMode 由来の task と手動 checkpoint では、`plan.md` が閾値 (`
 | ExitPlanMode を承認 | `plan.md`（移動）, `task.md` |
 | Stop フックでトークン閾値超え | `plan.md`（メタ情報のみ）, `task.md` |
 | `/checkpoint` 手動実行 | `plan.md`（Claude が詳細記述）, `task.md` |
-| ExitPlanMode または手動 `/checkpoint` で `plan.md` が長い | `summary.md` も追加 |
+| いずれかの task 作成経路で `plan.md` が閾値超 | `summary.md` も追加（経路によらず統一ルール） |
 | `/summarise` 実行 | 既存 `summary.md` を上書き（自動 checkpoint の場合は `plan.md` も会話履歴で上書き） |

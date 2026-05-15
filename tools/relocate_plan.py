@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -28,9 +27,6 @@ SOURCE_PLANS = Path(
     or (Path.home() / ".claude" / "plans")
 )
 PAUSE_AFTER_PLAN = os.environ.get("CC_WORKFLOW_PAUSE_AFTER_PLAN", "1") == "1"
-SUMMARY_THRESHOLD_LINES = int(
-    os.environ.get("CC_WORKFLOW_SUMMARY_THRESHOLD_LINES", "50")
-)
 
 
 def find_latest_plan_md(within_seconds: int = 300) -> Path | None:
@@ -64,28 +60,6 @@ def derive_name(plan_text: str, fallback: str) -> str:
     cand = _common.first_non_empty_line(plan_text)
     slug = _common.slugify(cand) if cand else ""
     return slug or fallback
-
-
-def maybe_spawn_summary(task_dir: Path) -> bool:
-    """Kick off the async summary generator. Returns True if launched."""
-    plan = task_dir / "plan.md"
-    try:
-        lines = plan.read_text(encoding="utf-8").count("\n")
-    except OSError:
-        return False
-    if lines <= SUMMARY_THRESHOLD_LINES:
-        return False
-    # Placeholder so the file exists immediately
-    (task_dir / "summary.md").write_text("_(要約を生成中…)_\n", encoding="utf-8")
-    _common.spawn_detached(
-        [
-            _common.python_executable(),
-            str(Path(__file__).parent / "_summarize_worker.py"),
-            str(plan),
-            str(task_dir / "summary.md"),
-        ]
-    )
-    return True
 
 
 def main() -> int:
@@ -149,7 +123,7 @@ def main() -> int:
     if sid:
         _common.mark_task_open(task_id, session_id=sid)
 
-    summary_launched = maybe_spawn_summary(task_dir)
+    summary_launched = _common.maybe_spawn_summary(task_dir / "plan.md")
 
     if PAUSE_AFTER_PLAN:
         note = ""

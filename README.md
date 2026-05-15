@@ -40,7 +40,7 @@ Claude の応答が終わるたびに、それまでの会話を参照できる 
 
 - `task.md`: frontmatter にトリガ情報・前回タスク参照・トークン数
 - `plan.md`: 採取時のメタ情報のみ。会話本文は転記しない
-- `summary.md`: 自動 checkpoint の採取時には生成しない。後から `/cc-workflow:summarise` で会話履歴を抜き出して生成する
+- `summary.md`: `plan.md` が閾値行数を超えていれば生成。自動 checkpoint は `plan.md` がメタ情報だけで通常は閾値未満なので作られないが、その判定は他の経路と同じ size ベースの統一ルール。長い `plan.md` が欲しい場合は後から `/cc-workflow:summarise` で会話履歴を抜き出して再生成できる
 
 | 環境変数 | デフォルト | 意味 |
 |---|---|---|

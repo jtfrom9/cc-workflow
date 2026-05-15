@@ -485,6 +485,44 @@ def python_executable() -> str:
     return sys.executable or "python3"
 
 
+# ----------------------------------------------------------------------
+# Summary spawn (uniform rule across all task-creation paths)
+# ----------------------------------------------------------------------
+
+def maybe_spawn_summary(plan_path: Path) -> bool:
+    """If ``plan.md`` exceeds the configured line threshold, write a
+    placeholder ``summary.md`` next to it and spawn ``_summarize_worker.py``
+    detached. Returns True if the worker was launched, False otherwise
+    (file missing, short content, or read failure).
+
+    This is the single rule for whether a task gets a summary at capture
+    time: it depends only on ``plan.md`` size. Every path that produces a
+    task (auto checkpoint, manual checkpoint, plan relocation, the
+    ``maybe_spawn_summary.py`` CLI used from the /summarise flow) goes
+    through here.
+    """
+    if not plan_path.is_file():
+        return False
+    threshold = int(os.environ.get("CC_WORKFLOW_SUMMARY_THRESHOLD_LINES", "50"))
+    try:
+        lines = plan_path.read_text(encoding="utf-8").count("\n")
+    except OSError:
+        return False
+    if lines <= threshold:
+        return False
+    summary_path = plan_path.parent / "summary.md"
+    summary_path.write_text("_(要約を生成中…)_\n", encoding="utf-8")
+    spawn_detached(
+        [
+            python_executable(),
+            str(Path(__file__).parent / "_summarize_worker.py"),
+            str(plan_path),
+            str(summary_path),
+        ]
+    )
+    return True
+
+
 def claude_command() -> list[str]:
     """Return the argv prefix used to invoke ``claude -p`` for background work.
 
