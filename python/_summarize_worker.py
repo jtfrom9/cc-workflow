@@ -16,6 +16,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+import _common  # noqa: E402
+
 
 def write_failure(
     summary_path: Path,
@@ -70,12 +73,14 @@ def main() -> int:
         + plan_text
     )
 
+    cmd = _common.claude_command() + ["-p", prompt]
     try:
         r = subprocess.run(
-            ["claude", "-p", prompt],
+            cmd,
             capture_output=True,
             text=True,
             timeout=180,
+            stdin=subprocess.DEVNULL,
         )
     except Exception as e:
         write_failure(summary_path, exception=e)

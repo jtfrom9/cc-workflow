@@ -62,12 +62,14 @@ def _run_worker(params_path: Path) -> int:
         "【ユーザ指示】\n" + snippet
     )
 
+    cmd = _common.claude_command() + ["-p", "--model", classifier_model, classifier_prompt]
     try:
         r = subprocess.run(
-            ["claude", "-p", "--model", classifier_model, classifier_prompt],
+            cmd,
             capture_output=True,
             text=True,
             timeout=120,
+            stdin=subprocess.DEVNULL,
         )
         decision = (r.stdout or "").strip().upper()
     except Exception:

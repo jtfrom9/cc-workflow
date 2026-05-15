@@ -320,3 +320,19 @@ def write_temp_json(payload: dict) -> Path:
 def python_executable() -> str:
     """Return the running Python interpreter path (for re-invocation)."""
     return sys.executable or "python3"
+
+
+def claude_command() -> list[str]:
+    """Return the argv prefix used to invoke ``claude -p`` for background work.
+
+    Defaults to ``["claude"]``. Overridable via ``JTFROM9_CC_WORKFLOW_CLAUDE_CMD``
+    (parsed with :func:`shlex.split`) when the user's environment routes the
+    ``claude`` binary through a wrapper that doesn't tolerate non-TTY callers
+    (e.g. docker / sandbox wrappers requiring ``-it``). Point this at the real
+    underlying binary, or at a stub like ``false`` to disable summary calls.
+    """
+    raw = os.environ.get("JTFROM9_CC_WORKFLOW_CLAUDE_CMD", "").strip()
+    if raw:
+        import shlex
+        return shlex.split(raw)
+    return ["claude"]

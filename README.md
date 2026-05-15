@@ -180,6 +180,7 @@ UserPromptSubmit
 - 分類器はブレることがあるため、保守的に「不明なら NO」と判定するよう指示している
 - それでも誤判定はあり得る。task が増え過ぎたら `JTFROM9_CC_WORKFLOW_SAVE_PROMPT_AS_TASK=0` で無効化するか、不要 task を手動削除する
 - `claude -p` を呼ぶため Haiku の API トークンを少額消費する
+- 環境によっては `claude` バイナリが docker / sandbox ラッパーを経由しており、非 TTY サブプロセス起動を許容しないことがある。その場合 `JTFROM9_CC_WORKFLOW_CLAUDE_CMD` で直接バイナリパスを指定するか、`false` を指定して要約呼び出し自体を抑制する
 
 ### relocate-plan: プランをタスクフォルダにまとめて、承認後にいったん停止
 
@@ -243,6 +244,7 @@ status: pending
 | `JTFROM9_CC_WORKFLOW_SOURCE_PLANS` | `$HOME/.claude/plans` | 移動元（`plansDirectory` を変更している場合に合わせる） |
 | `JTFROM9_CC_WORKFLOW_PAUSE_AFTER_PLAN` | `1` | `1` で承認後に停止、`0` でそのまま実装に進む |
 | `JTFROM9_CC_WORKFLOW_SUMMARY_THRESHOLD_LINES` | `50` | `plan.md` がこの行数を超えたら `claude -p` で要約生成 |
+| `JTFROM9_CC_WORKFLOW_CLAUDE_CMD` | `claude` | 要約・分類で叩く `claude` バイナリの上書き。docker / sandbox ラッパー越しの起動で TTY エラーになる環境用。例: `/usr/local/bin/claude-direct`、`false`（要約完全無効化）|
 
 #### 制約
 
