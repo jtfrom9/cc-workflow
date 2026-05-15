@@ -116,7 +116,7 @@ status: pending
   <stderr 内容>
   ```
 
-再生成: `/cc-workflow:summarise <taskId>`
+再生成: `/cc-workflow:restore <taskId>` で task を開いてから `/cc-workflow:summarise`
 ```
 
 これが書かれていたら、`claude` バイナリが見えない／ラッパー越しで TTY を要求している／タイムアウト等の原因がここから特定できる。回避策は環境変数 `CC_WORKFLOW_CLAUDE_CMD` で直接の `claude` バイナリパスを指定するか、`false` を渡して要約呼び出し自体を抑制する。

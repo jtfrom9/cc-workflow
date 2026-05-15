@@ -52,7 +52,7 @@ def write_failure(
         lines.append(stderr[:1000])
         lines.append("```")
     lines.append("")
-    lines.append("再生成: `/cc-workflow:summarise <taskId>`")
+    lines.append("再生成: `/cc-workflow:restore <taskId>` で task を開いてから `/cc-workflow:summarise`")
     summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
