@@ -29,7 +29,7 @@
 要約が必要なら `/cc-workflow:summarise` を実行。
 ```
 
-採取時に本文を書き込まないのは、コスト・遅延・サンドボックス制約を避けるため。あとから `/summarise` を叩くと、`tools/regenerate_summary.py` が JSONL から会話履歴を抜き出してこの `plan.md` を上書きする（自動 checkpoint 限定の挙動）。
+採取時に本文を書き込まないのは、コスト・遅延・サンドボックス制約を避けるため。あとから `/cc-workflow:summarise` を実行すると、`tools/regenerate_summary.py` が JSONL から会話履歴を抜き出してこの `plan.md` を上書きする（自動 checkpoint 限定の挙動）。
 
 ### 手動 checkpoint (`trigger: manual`)
 
@@ -132,5 +132,5 @@ status: pending
 | ExitPlanMode を承認 | `plan.md`（移動）, `task.md` |
 | Stop フックでトークン閾値超え | `plan.md`（メタ情報のみ）, `task.md` |
 | `/checkpoint` 手動実行 | `plan.md`（Claude が詳細記述）, `task.md` |
-| 上記いずれかで `plan.md` が長い | `summary.md` も追加 |
+| ExitPlanMode または手動 `/checkpoint` で `plan.md` が長い | `summary.md` も追加 |
 | `/summarise` 実行 | 既存 `summary.md` を上書き（自動 checkpoint の場合は `plan.md` も会話履歴で上書き） |
