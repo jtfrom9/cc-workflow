@@ -19,11 +19,34 @@ from pathlib import Path
 # Paths
 # ----------------------------------------------------------------------
 
+def normalize_runtime_path(path: str | Path) -> Path:
+    """Convert an MSYS2-style drive path to a native Windows path."""
+    raw = str(path).replace("\\", "/")
+    if os.name == "nt":
+        m = re.match(r"^/([A-Za-z])(?:/(.*))?$", raw)
+        if m:
+            raw = f"{m.group(1).upper()}:/{m.group(2) or ''}"
+        else:
+            m = re.match(r"^/cygdrive/([A-Za-z])(?:/(.*))?$", raw)
+            if m:
+                raw = f"{m.group(1).upper()}:/{m.group(2) or ''}"
+    return Path(raw)
+
+
+def encode_claude_project_path(path: str | Path) -> str:
+    """Return Claude Code's directory name for a project transcript path."""
+    normalized = normalize_runtime_path(path).as_posix()
+    return normalized.replace(":", "-").replace("/", "-")
+
+
 def data_dir() -> Path:
-    """Plugin runtime data root. Honors CC_WORKFLOW_DIR."""
+    """Plugin runtime data root. Honors CC_WORKFLOW_DIR and shell HOME."""
     d = os.environ.get("CC_WORKFLOW_DIR")
     if d:
-        return Path(d)
+        return normalize_runtime_path(d)
+    home = os.environ.get("HOME")
+    if home:
+        return normalize_runtime_path(home) / ".cc-workflow"
     return Path.home() / ".cc-workflow"
 
 
@@ -91,7 +114,7 @@ def get_project_info(
             except OSError:
                 recorded = ""
             if recorded:
-                root = Path(recorded)
+                root = normalize_runtime_path(recorded)
                 return root.name, root
 
     fallback = Path.cwd()
@@ -349,7 +372,7 @@ def session_transcript_path(session_id: str, project_root: Path) -> Path:
     Claude Code encodes ``project_root`` by replacing path separators with ``-``
     and stores transcripts at ``~/.claude/projects/<encoded>/<session_id>.jsonl``.
     """
-    encoded = project_root.as_posix().replace("/", "-")
+    encoded = encode_claude_project_path(project_root)
     return Path.home() / ".claude" / "projects" / encoded / f"{session_id}.jsonl"
 
 

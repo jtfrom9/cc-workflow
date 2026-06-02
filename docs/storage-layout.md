@@ -15,11 +15,14 @@
 
 `~/.cc-workflow/` 配下は実行時に自動で作成される。`state/` はセッション状態なので次の起動で再作成されるが、`tasks/` は保存済み task の本体なので、削除するとその履歴は復元できない。
 
+MSYS2 で起動した場合も、シェルと Python の両方で起動シェルの `$HOME` を基準にする。Windows Python の `Path.home()` と MSYS2 の `$HOME` が異なる環境でも保存先は分岐しない。
+
 ## project の決定
 
 `<project>` 部分は **Claude Code を起動した cwd のベース名** で決まる。git は参照しない。
 
 - `SessionStart` フック (`hooks/session-start.sh`) が `pwd` を `state/<sid>/cwd` に記録する
+- `UserPromptSubmit` フック (`hooks/touch-session.sh`) が `state/<sid>/` の更新日時を進め、slash command が現在のセッションを識別できるようにする
 - 以降のフック・コマンドはその `cwd` を `project_root` として固定する
 - セッション中に Claude Code の cwd がサブディレクトリにシフトしても、project 名は変わらない
 

@@ -29,6 +29,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+import _common  # noqa: E402
+
 
 # Approximate per-model context windows (in tokens).
 # Falls through to 200k if nothing matches.
@@ -51,10 +54,9 @@ def _max_tokens_for(model_id: str) -> int:
 
 
 def _encoded_cwd(cwd: str) -> str:
-    p = str(Path(cwd))
-    if not p:
+    if not cwd:
         return ""
-    return "-" + p.lstrip("/").replace("/", "-")
+    return _common.encode_claude_project_path(cwd)
 
 
 def _locate_transcript(payload: dict) -> Path | None:
