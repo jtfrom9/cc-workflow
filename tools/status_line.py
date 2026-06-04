@@ -22,7 +22,7 @@ background so the status line never blocks on the network.
 
 Output example::
 
-    🧠 ██████░░░░ 562k/1M (56%) · claude-opus-4-7 · 🟢 85% 2h21m · 7d 96%
+    📁 cc-workflow · 🧠 ██████░░░░ 562k/1M (56%) · claude-opus-4-7 · 🟢 85% 2h21m · 7d 96%
 """
 
 from __future__ import annotations
@@ -148,6 +148,12 @@ def _append(line: str, segment: str) -> str:
     return f"{line} · {segment}" if segment else line
 
 
+def _folder_label(payload: dict) -> str:
+    """Basename of the session's working directory, or "" if unknown."""
+    cwd = payload.get("cwd") or (payload.get("workspace") or {}).get("current_dir") or ""
+    return Path(cwd).name if cwd else ""
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -164,12 +170,16 @@ def main() -> int:
     # Session rate-limit segment (independent of the conversation transcript).
     session = session_usage.load_segment()
 
+    # Leading folder label (current working directory basename).
+    folder = _folder_label(payload)
+    head = f"📁 {folder} · " if folder else ""
+
     transcript = _locate_transcript(payload)
     usage = _read_last_usage(transcript) if transcript is not None else None
 
     if not usage:
         # Render a minimal line so the status bar still shows something useful.
-        print(_append(f"🧠 — · {_short_model_id(model_id) or '?'}", session))
+        print(head + _append(f"🧠 — · {_short_model_id(model_id) or '?'}", session))
         return 0
 
     used = (
@@ -182,7 +192,7 @@ def main() -> int:
     bar = _bar(used, max_tokens)
     short = _short_model_id(model_id) or "?"
 
-    print(_append(f"🧠 {bar} {_fmt(used)}/{_fmt(max_tokens)} ({pct}%) · {short}", session))
+    print(head + _append(f"🧠 {bar} {_fmt(used)}/{_fmt(max_tokens)} ({pct}%) · {short}", session))
     return 0
 
 
