@@ -32,6 +32,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import _common  # noqa: E402
 
+# The status line renders emoji and box-drawing glyphs that legacy Windows
+# console code pages (e.g. cp932) cannot encode, which would crash the script
+# with UnicodeEncodeError. Force UTF-8 output regardless of the console code
+# page so the line renders everywhere.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
+
 
 # Approximate per-model context windows (in tokens).
 # Falls through to 200k if nothing matches.
