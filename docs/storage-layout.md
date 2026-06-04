@@ -9,6 +9,8 @@
 ├── reviews/<project>/<run-id>/ ← auto-review-loop の run 状態
 │   ├── state.json              ← ラウンド・reviewer×perspective・指摘・解消状況
 │   └── round-<n>/              ← 各ラウンドのレビュー全文（<reviewer>-<perspective>.md）
+├── cache/                      ← グローバルキャッシュ（セッション非依存）
+│   └── oauth-usage.json        ← OAuth usage API のレスポンス（ステータスライン用・TTL付き）
 ├── state/<session-id>/         ← セッション毎の sentinel
 │   ├── cwd                     ← セッション起動時の cwd（SessionStart で記録）
 │   ├── open_task_id            ← 現在「開いている」taskId

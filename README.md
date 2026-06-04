@@ -111,7 +111,35 @@ Codex をレビュアーに使う場合は Codex CLI のインストールとロ
 
 ### ステータスライン
 
-ステータスラインに使用量を表示するなどの修飾を加える。
+`tools/status_line.py` を `~/.claude/settings.json` の `statusLine` に設定すると、
+コンテキスト窓の使用量と **レート制限ウィンドウの残量** を1行で表示する。
+
+```
+🧠 ██████░░░░ 562k/1M (56%) · claude-opus-4-8 · 🟢 85% 2h21m · 7d 96%
+└─ コンテキスト窓使用量 ──────────────────┘   └ 5時間窓の残量＋リセット ┘ └ 7日 ┘
+```
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "python3 /<plugin-root>/tools/status_line.py"
+  }
+}
+```
+
+セッション残量は **ccusage を使わず**、Anthropic の OAuth usage エンドポイント
+（`/api/oauth/usage`）から 5時間／7日ウィンドウの `utilization` と `resets_at` を直接取得する。
+アクセストークンの取得は **macOS=Keychain（`Claude Code-credentials`）／ Windows・Linux=
+`~/.claude/.credentials.json`** の両対応。ステータスラインはネットワークでブロックしないよう、
+キャッシュを即描画し TTL 超過時のみバックグラウンドで更新する（stale-while-revalidate）。
+残量に応じて 🟢 / 🟡 / 🟠 / 🔴 を出し分ける。
+
+| 環境変数 | デフォルト | 意味 |
+|---|---|---|
+| `CC_WORKFLOW_SESSION_USAGE` | `1` | `0` でセッション残量セグメントを無効化（ネットワーク呼び出しなし） |
+| `CC_WORKFLOW_USAGE_TTL` | `60` | usage キャッシュの鮮度（秒）。超過でバックグラウンド更新 |
+| `CLAUDE_CODE_OAUTH_TOKEN` | （未設定） | トークンの上書き。設定時は Keychain／ファイル探索をスキップ |
 
 ## 保存されるデータ
 

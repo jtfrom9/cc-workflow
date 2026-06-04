@@ -16,9 +16,13 @@ Reads the current session transcript (``~/.claude/projects/<encoded-cwd>/
 ``message.usage`` entry, and renders the cumulative input tokens against
 the model's known context window.
 
+Appends a session rate-limit "remaining" segment from
+``session_usage.load_segment()`` (5-hour / 7-day windows), refreshed in the
+background so the status line never blocks on the network.
+
 Output example::
 
-    🧠 ██████░░░░ 562k/1M (56%) · claude-opus-4-7
+    🧠 ██████░░░░ 562k/1M (56%) · claude-opus-4-7 · 🟢 85% 2h21m · 7d 96%
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import _common  # noqa: E402
+import session_usage  # noqa: E402
 
 # The status line renders emoji and box-drawing glyphs that legacy Windows
 # console code pages (e.g. cp932) cannot encode, which would crash the script
@@ -138,6 +143,11 @@ def _bar(used: int, total: int, width: int = 10) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
+def _append(line: str, segment: str) -> str:
+    """Append a non-empty session segment with the standard separator."""
+    return f"{line} · {segment}" if segment else line
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -151,15 +161,15 @@ def main() -> int:
     elif isinstance(model_info, str):
         model_id = model_info
 
-    transcript = _locate_transcript(payload)
-    if transcript is None:
-        # Render a minimal line so the status bar still shows something useful.
-        print(f"🧠 — · {_short_model_id(model_id) or '?'}")
-        return 0
+    # Session rate-limit segment (independent of the conversation transcript).
+    session = session_usage.load_segment()
 
-    usage = _read_last_usage(transcript)
+    transcript = _locate_transcript(payload)
+    usage = _read_last_usage(transcript) if transcript is not None else None
+
     if not usage:
-        print(f"🧠 — · {_short_model_id(model_id) or '?'}")
+        # Render a minimal line so the status bar still shows something useful.
+        print(_append(f"🧠 — · {_short_model_id(model_id) or '?'}", session))
         return 0
 
     used = (
@@ -172,7 +182,7 @@ def main() -> int:
     bar = _bar(used, max_tokens)
     short = _short_model_id(model_id) or "?"
 
-    print(f"🧠 {bar} {_fmt(used)}/{_fmt(max_tokens)} ({pct}%) · {short}")
+    print(_append(f"🧠 {bar} {_fmt(used)}/{_fmt(max_tokens)} ({pct}%) · {short}", session))
     return 0
 
 
