@@ -6,12 +6,25 @@
 ~/.cc-workflow/
 ├── tasks/<project>/<taskId>/   ← 保存済み task の本体（plan.md / task.md / summary.md）
 │   └── .last_index             ← プロジェクト内 index カウンタ（隠しファイル）
+├── reviews/<project>/<run-id>/ ← auto-review-loop の run 状態
+│   ├── state.json              ← ラウンド・reviewer×perspective・指摘・解消状況
+│   └── round-<n>/              ← 各ラウンドのレビュー全文（<reviewer>-<perspective>.md）
 ├── state/<session-id>/         ← セッション毎の sentinel
 │   ├── cwd                     ← セッション起動時の cwd（SessionStart で記録）
 │   ├── open_task_id            ← 現在「開いている」taskId
+│   ├── open_review_run         ← 現在「開いている」auto-review-loop の run-id
 │   └── last_checkpoint_taskid  ← 直近の手動 checkpoint taskId（インクリメンタル用）
 └── log/                        ← 任意のデバッグログ置き場（現状未使用）
 ```
+
+## auto-review-loop の run 状態
+
+`auto-review-loop` スキルは run ごとに `reviews/<project>/<run-id>/` を作る。`<run-id>` は
+`<yymmdd>-<HHMMSS>-<title-slug>`。`state.json` にラウンド数・選択した reviewer×perspective・
+各ラウンドで指摘を出した組（次ラウンドの絞り込み用）・トリアージ結果・解消状況が入り、
+レビュー全文は `round-<n>/<reviewer>-<perspective>.md` に保存される。作業コンテキストには
+要約だけを載せ、全文はこのファイル群を参照する。現在進行中の run は
+`state/<sid>/open_review_run` が指す。run の `<project>` 解決は task と同じく起動時 cwd のベース名。
 
 `~/.cc-workflow/` 配下は実行時に自動で作成される。`state/` はセッション状態なので次の起動で再作成されるが、`tasks/` は保存済み task の本体なので、削除するとその履歴は復元できない。
 
