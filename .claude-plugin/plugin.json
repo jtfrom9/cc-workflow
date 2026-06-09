@@ -1,7 +1,7 @@
 {
   "name": "cc-workflow",
   "description": "Auto-checkpoints, plan-file organization, async summaries, and CLAUDE.md injection for Claude Code.",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "author": {
     "name": "jtfrom9 (Jun Tachikawa)"
   },
