@@ -23,6 +23,9 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import encode_claude_project_path  # noqa: E402
+
 
 # ----------------------------------------------------------------------
 # Timestamp helpers
@@ -153,8 +156,11 @@ def _iter_jsonl(path):
         return
 
 
-def collect(projects_root, start, end, tz=None):
+def collect(projects_root, start, end, project=None, tz=None):
     """Scan ``projects_root`` for turns inside the ``[start, end)`` window.
+
+    When ``project`` is given (a Claude Code project directory name), only
+    that one project is scanned; otherwise every project is scanned.
 
     Returns ``(sessions, order)`` where ``sessions`` maps
     ``(project_name, session_id)`` to a list of ``(hm, role, text)`` and
@@ -164,7 +170,11 @@ def collect(projects_root, start, end, tz=None):
     order: list = []
     if not projects_root.is_dir():
         return sessions, order
-    for proj_dir in sorted(projects_root.iterdir()):
+    if project is not None:
+        proj_dirs = [projects_root / project]
+    else:
+        proj_dirs = sorted(projects_root.iterdir())
+    for proj_dir in proj_dirs:
         if not proj_dir.is_dir():
             continue
         for jf in sorted(proj_dir.glob("*.jsonl")):
@@ -191,10 +201,11 @@ def collect(projects_root, start, end, tz=None):
     return sessions, order
 
 
-def render(sessions, order, start, end, snippet_chars):
+def render(sessions, order, start, end, snippet_chars, project=None):
     """Render collected turns as markdown grouped by project and session."""
     span = f"{start:%Y-%m-%d %H:%M} — {end:%Y-%m-%d %H:%M}"
-    lines = [f"# Transcript dump: {span} (local)", ""]
+    scope = f", project: {project}" if project else ""
+    lines = [f"# Transcript dump: {span} (local{scope})", ""]
     if not order:
         lines.append("_(no transcript activity found in this window)_")
         return "\n".join(lines)
@@ -223,6 +234,8 @@ def main(argv=None):
     ap.add_argument("--date",
                     help="Target a full local calendar day YYYY-MM-DD "
                          "instead of the rolling window.")
+    ap.add_argument("--all-projects", action="store_true",
+                    help="Scan every project, not just the current one.")
     ap.add_argument("--snippet-chars", type=int, default=280,
                     help="Per-turn truncation length (default: 280).")
     ap.add_argument("--projects-dir", help="Override ~/.claude/projects root.")
@@ -238,9 +251,10 @@ def main(argv=None):
         start = now - timedelta(hours=args.hours)
     root = (Path(args.projects_dir) if args.projects_dir
             else Path.home() / ".claude" / "projects")
+    project = None if args.all_projects else encode_claude_project_path(Path.cwd())
 
-    sessions, order = collect(root, start, end)
-    out = render(sessions, order, start, end, args.snippet_chars)
+    sessions, order = collect(root, start, end, project=project)
+    out = render(sessions, order, start, end, args.snippet_chars, project=project)
 
     try:
         sys.stdout.reconfigure(encoding="utf-8")

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Unit tests for the pure logic in ``tools/daily_report.py``.
+"""Unit tests for ``tools/daily_report.py``.
 
-Filesystem scanning is side-effecting and is not exercised here; only the
-deterministic parsing/extraction/rendering helpers are.
+The deterministic parsing/extraction/rendering helpers are covered here,
+along with ``collect``'s project-scoping behavior (exercised against a
+temporary projects root).
 
 Run from the repo root::
 
@@ -11,7 +12,9 @@ Run from the repo root::
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -128,6 +131,40 @@ class RenderTests(unittest.TestCase):
         self.assertIn("## project: cc-workflow", out)
         self.assertIn("- [14:45] user: fix the bug", out)
         self.assertIn("- [14:46] assistant: done", out)
+
+    def test_header_shows_project_scope_when_restricted(self):
+        out = dr.render({}, [], self.START, self.END, 80, project="C--work-cc-workflow")
+        self.assertIn("C--work-cc-workflow", out)
+
+
+class CollectScopeTests(unittest.TestCase):
+    START = datetime(2026, 6, 9, 0, 0, tzinfo=JST)
+    END = datetime(2026, 6, 10, 0, 0, tzinfo=JST)
+
+    def _write(self, root, project, session, ts, role, text):
+        pdir = root / project
+        pdir.mkdir(parents=True, exist_ok=True)
+        rec = {"timestamp": ts, "sessionId": session,
+               "message": {"role": role, "content": text}}
+        with (pdir / f"{session}.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec) + "\n")
+
+    def test_project_filter_scans_only_named_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            # 05:00 UTC == 14:00 JST, inside the JST-9th window
+            self._write(root, "projA", "s1", "2026-06-09T05:00:00Z", "user", "in A")
+            self._write(root, "projB", "s2", "2026-06-09T05:00:00Z", "user", "in B")
+            _, order = dr.collect(root, self.START, self.END, project="projA")
+            self.assertEqual([k[0] for k in order], ["projA"])
+
+    def test_no_filter_scans_all_projects(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._write(root, "projA", "s1", "2026-06-09T05:00:00Z", "user", "in A")
+            self._write(root, "projB", "s2", "2026-06-09T05:00:00Z", "user", "in B")
+            _, order = dr.collect(root, self.START, self.END)
+            self.assertEqual(sorted(k[0] for k in order), ["projA", "projB"])
 
 
 if __name__ == "__main__":

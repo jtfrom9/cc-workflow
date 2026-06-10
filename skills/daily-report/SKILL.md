@@ -1,7 +1,7 @@
 ---
 name: daily-report
 description: >-
-  直近 24 時間の Claude Code 全セッションを横断して要約し、daily-report 調の
+  現在のプロジェクトの直近 24 時間の Claude Code セッションを要約し、daily-report 調の
   短い日報を出す。ユーザが「今日のセッションを要約して」「日報」「daily report」等、
   最近の作業のまとめを求めたときに起動する。出力は **アイテマイズ最大 3 項目・
   合計 400 字以内** の日本語。transcript の抽出は決定的ヘルパに委ね、要約の取捨選択は
@@ -11,7 +11,7 @@ allowed-tools: Bash, Read
 
 # daily-report
 
-直近 24 時間の Claude Code セッション（全プロジェクト横断）を、**daily-report 調**の短い日報に
+現在のプロジェクトの直近 24 時間の Claude Code セッションを、**daily-report 調**の短い日報に
 まとめる。要素の抽出は決定的ヘルパ `tools/daily_report.py` に任せ、**何を残すか**の判断は
 自分で行う。
 
@@ -33,11 +33,12 @@ allowed-tools: Bash, Read
 python3 "${CLAUDE_PLUGIN_ROOT}/tools/daily_report.py"
 ```
 
-- 既定で **実行時刻から遡る直近 24 時間**（＝日付をまたぐ範囲）の user/assistant 発話を、
-  プロジェクト × セッション別に markdown で出力する。`thinking` / `tool_use` /
-  ツール出力・コマンド系のノイズは除外済み。
-- 窓の長さを変えるなら `--hours N`。特定の 1 日を対象にするなら `--date YYYY-MM-DD`。
-  1 発話あたりの長さは `--snippet-chars N`（既定 280）で調整できる。
+- 既定で **現在のプロジェクト**（カレントディレクトリから判定）の、**実行時刻から遡る
+  直近 24 時間**（＝日付をまたぐ範囲）の user/assistant 発話を、セッション別に markdown で
+  出力する。`thinking` / `tool_use` / ツール出力・コマンド系のノイズは除外済み。
+- 全プロジェクトを横断したいなら `--all-projects`。窓の長さを変えるなら `--hours N`、
+  特定の 1 日を対象にするなら `--date YYYY-MM-DD`。1 発話あたりの長さは
+  `--snippet-chars N`（既定 280）で調整できる。
 - 出力が空（`no transcript activity found`）なら、その旨だけ伝えて終了する。
 
 ### 2. トリアージして日報に圧縮
