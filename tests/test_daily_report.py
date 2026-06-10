@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sys
 import unittest
-from datetime import date, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
@@ -22,26 +22,39 @@ import daily_report as dr  # noqa: E402
 JST = timezone(timedelta(hours=9))
 
 
-class LocalDateTests(unittest.TestCase):
-    def test_utc_z_suffix_converts_to_local_date(self):
-        # 05:45 UTC == 14:45 JST, same calendar day
-        self.assertEqual(dr.to_local_date("2026-06-09T05:45:25.346Z", JST), date(2026, 6, 9))
-
-    def test_utc_evening_rolls_into_next_local_day(self):
-        # 20:00 UTC on the 8th == 05:00 JST on the 9th
-        self.assertEqual(dr.to_local_date("2026-06-08T20:00:00.000Z", JST), date(2026, 6, 9))
-
-    def test_explicit_offset_is_respected(self):
-        self.assertEqual(dr.to_local_date("2026-06-09T00:00:00+09:00", JST), date(2026, 6, 9))
-
-    def test_empty_or_garbage_is_none(self):
-        self.assertIsNone(dr.to_local_date("", JST))
-        self.assertIsNone(dr.to_local_date("not-a-date", JST))
-        self.assertIsNone(dr.to_local_date(None, JST))
-
+class TimestampTests(unittest.TestCase):
     def test_hm_formats_local_clock(self):
         self.assertEqual(dr.to_local_hm("2026-06-09T05:45:25.346Z", JST), "14:45")
         self.assertEqual(dr.to_local_hm("bad", JST), "")
+
+
+class WindowTests(unittest.TestCase):
+    """``in_window`` decides membership in a half-open ``[start, end)`` range
+    of tz-aware instants, regardless of the timestamp's own zone."""
+
+    START = datetime(2026, 6, 9, 11, 0, tzinfo=JST)
+    END = datetime(2026, 6, 10, 11, 0, tzinfo=JST)
+
+    def test_inside_window_is_true(self):
+        # 05:45 UTC == 14:45 JST, within [11:00 .. 11:00 next day)
+        self.assertTrue(dr.in_window("2026-06-09T05:45:25Z", self.START, self.END))
+
+    def test_before_window_is_false(self):
+        # 01:00 UTC == 10:00 JST, before the 11:00 start
+        self.assertFalse(dr.in_window("2026-06-09T01:00:00Z", self.START, self.END))
+
+    def test_start_is_inclusive(self):
+        # 02:00 UTC == 11:00 JST == start
+        self.assertTrue(dr.in_window("2026-06-09T02:00:00Z", self.START, self.END))
+
+    def test_end_is_exclusive(self):
+        # 02:00 UTC next day == 11:00 JST == end
+        self.assertFalse(dr.in_window("2026-06-10T02:00:00Z", self.START, self.END))
+
+    def test_garbage_timestamp_is_false(self):
+        self.assertFalse(dr.in_window("not-a-date", self.START, self.END))
+        self.assertFalse(dr.in_window("", self.START, self.END))
+        self.assertFalse(dr.in_window(None, self.START, self.END))
 
 
 class MessageTextTests(unittest.TestCase):
@@ -96,15 +109,22 @@ class TruncateTests(unittest.TestCase):
 
 
 class RenderTests(unittest.TestCase):
+    START = datetime(2026, 6, 9, 11, 0, tzinfo=JST)
+    END = datetime(2026, 6, 10, 11, 0, tzinfo=JST)
+
     def test_empty_renders_placeholder(self):
-        out = dr.render({}, [], date(2026, 6, 9), 80)
-        self.assertIn("2026-06-09", out)
+        out = dr.render({}, [], self.START, self.END, 80)
         self.assertIn("no transcript activity", out)
+
+    def test_header_shows_window_bounds(self):
+        out = dr.render({}, [], self.START, self.END, 80)
+        self.assertIn("2026-06-09 11:00", out)
+        self.assertIn("2026-06-10 11:00", out)
 
     def test_groups_by_project_and_lists_turns(self):
         key = ("cc-workflow", "abcdef12-0000")
         sessions = {key: [("14:45", "user", "fix the bug"), ("14:46", "assistant", "done")]}
-        out = dr.render(sessions, [key], date(2026, 6, 9), 80)
+        out = dr.render(sessions, [key], self.START, self.END, 80)
         self.assertIn("## project: cc-workflow", out)
         self.assertIn("- [14:45] user: fix the bug", out)
         self.assertIn("- [14:46] assistant: done", out)

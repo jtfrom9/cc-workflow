@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""daily_report — dump a single day's Claude Code transcript turns.
+"""daily_report — dump recent Claude Code transcript turns.
 
 The ``daily-report`` skill runs this to gather raw material, then Claude
 condenses it into a short itemized daily report. Only deterministic
 extraction lives here; the summarization judgment is Claude's.
 
 It scans every project under ``~/.claude/projects/`` and emits the
-user/assistant turns whose timestamp falls on the target *local* date,
-grouped by project and session, as markdown.
+user/assistant turns whose timestamp falls inside a time window —
+by default the rolling last 24 hours back from now — grouped by project
+and session, as markdown.
 
 Usage:
-    python3 daily_report.py [--date YYYY-MM-DD] [--snippet-chars N]
-                            [--projects-dir DIR]
+    python3 daily_report.py [--hours N] [--date YYYY-MM-DD]
+                            [--snippet-chars N] [--projects-dir DIR]
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -48,10 +49,17 @@ def _parse_ts(ts_iso, tz=None):
     return dt.astimezone(tz)
 
 
-def to_local_date(ts_iso, tz=None):
-    """Local calendar date of ``ts_iso``, or ``None`` if unparseable."""
-    dt = _parse_ts(ts_iso, tz)
-    return dt.date() if dt else None
+def in_window(ts_iso, start, end):
+    """True if ``ts_iso`` parses to an instant in the half-open ``[start, end)``.
+
+    ``start``/``end`` are tz-aware datetimes; the comparison is on absolute
+    instants, so the timestamp's own zone is irrelevant. Unparseable input
+    is treated as outside the window.
+    """
+    dt = _parse_ts(ts_iso)
+    if dt is None:
+        return False
+    return start <= dt < end
 
 
 def to_local_hm(ts_iso, tz=None):
@@ -145,8 +153,8 @@ def _iter_jsonl(path):
         return
 
 
-def collect(projects_root, target_date, tz=None):
-    """Scan ``projects_root`` for turns on ``target_date``.
+def collect(projects_root, start, end, tz=None):
+    """Scan ``projects_root`` for turns inside the ``[start, end)`` window.
 
     Returns ``(sessions, order)`` where ``sessions`` maps
     ``(project_name, session_id)`` to a list of ``(hm, role, text)`` and
@@ -161,7 +169,7 @@ def collect(projects_root, target_date, tz=None):
             continue
         for jf in sorted(proj_dir.glob("*.jsonl")):
             for obj in _iter_jsonl(jf):
-                if to_local_date(obj.get("timestamp"), tz) != target_date:
+                if not in_window(obj.get("timestamp"), start, end):
                     continue
                 msg = obj.get("message")
                 if not isinstance(msg, dict):
@@ -183,11 +191,12 @@ def collect(projects_root, target_date, tz=None):
     return sessions, order
 
 
-def render(sessions, order, target_date, snippet_chars):
+def render(sessions, order, start, end, snippet_chars):
     """Render collected turns as markdown grouped by project and session."""
-    lines = [f"# Transcript dump: {target_date.isoformat()}", ""]
+    span = f"{start:%Y-%m-%d %H:%M} — {end:%Y-%m-%d %H:%M}"
+    lines = [f"# Transcript dump: {span} (local)", ""]
     if not order:
-        lines.append("_(no transcript activity found for this date)_")
+        lines.append("_(no transcript activity found in this window)_")
         return "\n".join(lines)
     cur_proj = None
     for key in order:
@@ -208,20 +217,30 @@ def render(sessions, order, target_date, snippet_chars):
 # ----------------------------------------------------------------------
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Dump a day's transcript turns.")
-    ap.add_argument("--date", help="Target local date YYYY-MM-DD (default: today).")
+    ap = argparse.ArgumentParser(description="Dump recent transcript turns.")
+    ap.add_argument("--hours", type=float, default=24.0,
+                    help="Rolling window size in hours back from now (default: 24).")
+    ap.add_argument("--date",
+                    help="Target a full local calendar day YYYY-MM-DD "
+                         "instead of the rolling window.")
     ap.add_argument("--snippet-chars", type=int, default=280,
                     help="Per-turn truncation length (default: 280).")
     ap.add_argument("--projects-dir", help="Override ~/.claude/projects root.")
     args = ap.parse_args(argv)
 
-    target = (date.fromisoformat(args.date) if args.date
-              else datetime.now().astimezone().date())
+    now = datetime.now().astimezone()
+    if args.date:
+        day = date.fromisoformat(args.date)
+        start = datetime(day.year, day.month, day.day, tzinfo=now.tzinfo)
+        end = start + timedelta(days=1)
+    else:
+        end = now
+        start = now - timedelta(hours=args.hours)
     root = (Path(args.projects_dir) if args.projects_dir
             else Path.home() / ".claude" / "projects")
 
-    sessions, order = collect(root, target)
-    out = render(sessions, order, target, args.snippet_chars)
+    sessions, order = collect(root, start, end)
+    out = render(sessions, order, start, end, args.snippet_chars)
 
     try:
         sys.stdout.reconfigure(encoding="utf-8")
