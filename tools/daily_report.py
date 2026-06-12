@@ -11,7 +11,7 @@ by default the rolling last 24 hours back from now — grouped by project
 and session, as markdown.
 
 Usage:
-    python3 daily_report.py [--hours N] [--date YYYY-MM-DD]
+    python3 daily_report.py [--hours N] [--days N] [--date YYYY-MM-DD]
                             [--snippet-chars N] [--projects-dir DIR]
 """
 
@@ -138,6 +138,40 @@ def truncate(text, limit):
 
 
 # ----------------------------------------------------------------------
+# Window resolution
+# ----------------------------------------------------------------------
+
+def compute_window(now, hours=24.0, date_str=None, days=None):
+    """Resolve CLI options into a concrete ``[start, end)`` instant range.
+
+    Precedence (most to least specific):
+
+    - ``days=N`` covers N whole calendar days. The range ends on ``date_str``
+      when given, otherwise on the local day of ``now``; it starts N-1 days
+      earlier. ``days`` must be a positive integer.
+    - ``date_str`` alone covers that single local calendar day.
+    - neither covers a rolling window of ``hours`` back from ``now``.
+
+    ``now`` must be tz-aware; the returned bounds share its zone.
+    """
+    tz = now.tzinfo
+
+    def midnight(d):
+        return datetime(d.year, d.month, d.day, tzinfo=tz)
+
+    if days is not None:
+        if days < 1:
+            raise ValueError("days must be a positive integer")
+        end_day = date.fromisoformat(date_str) if date_str else now.date()
+        start_day = end_day - timedelta(days=days - 1)
+        return midnight(start_day), midnight(end_day) + timedelta(days=1)
+    if date_str:
+        day = date.fromisoformat(date_str)
+        return midnight(day), midnight(day) + timedelta(days=1)
+    return now - timedelta(hours=hours), now
+
+
+# ----------------------------------------------------------------------
 # Collection
 # ----------------------------------------------------------------------
 
@@ -231,9 +265,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Dump recent transcript turns.")
     ap.add_argument("--hours", type=float, default=24.0,
                     help="Rolling window size in hours back from now (default: 24).")
+    ap.add_argument("--days", type=int,
+                    help="Cover N whole local calendar days, ending today or "
+                         "on --date. Overrides --hours.")
     ap.add_argument("--date",
-                    help="Target a full local calendar day YYYY-MM-DD "
-                         "instead of the rolling window.")
+                    help="Target a full local calendar day YYYY-MM-DD instead "
+                         "of the rolling window; with --days, the day the range "
+                         "ends on.")
     ap.add_argument("--all-projects", action="store_true",
                     help="Scan every project, not just the current one.")
     ap.add_argument("--snippet-chars", type=int, default=280,
@@ -242,13 +280,11 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     now = datetime.now().astimezone()
-    if args.date:
-        day = date.fromisoformat(args.date)
-        start = datetime(day.year, day.month, day.day, tzinfo=now.tzinfo)
-        end = start + timedelta(days=1)
-    else:
-        end = now
-        start = now - timedelta(hours=args.hours)
+    try:
+        start, end = compute_window(now, hours=args.hours,
+                                    date_str=args.date, days=args.days)
+    except ValueError as exc:
+        ap.error(str(exc))
     root = (Path(args.projects_dir) if args.projects_dir
             else Path.home() / ".claude" / "projects")
     project = None if args.all_projects else encode_claude_project_path(Path.cwd())

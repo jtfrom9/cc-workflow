@@ -137,6 +137,46 @@ class RenderTests(unittest.TestCase):
         self.assertIn("C--work-cc-workflow", out)
 
 
+class ComputeWindowTests(unittest.TestCase):
+    """``compute_window`` turns CLI options into a concrete ``[start, end)``
+    instant range. ``--days N`` covers N whole calendar days ending today,
+    or ending on ``--date`` when both are given."""
+
+    NOW = datetime(2026, 6, 12, 15, 30, tzinfo=JST)
+
+    def test_rolling_hours_is_the_default(self):
+        start, end = dr.compute_window(self.NOW, hours=24.0)
+        self.assertEqual(end, self.NOW)
+        self.assertEqual(start, self.NOW - timedelta(hours=24))
+
+    def test_single_date_spans_that_calendar_day(self):
+        start, end = dr.compute_window(self.NOW, date_str="2026-06-10")
+        self.assertEqual(start, datetime(2026, 6, 10, 0, 0, tzinfo=JST))
+        self.assertEqual(end, datetime(2026, 6, 11, 0, 0, tzinfo=JST))
+
+    def test_days_covers_n_calendar_days_ending_today(self):
+        # 3 days ending today (the 12th): 10th, 11th, 12th.
+        start, end = dr.compute_window(self.NOW, days=3)
+        self.assertEqual(start, datetime(2026, 6, 10, 0, 0, tzinfo=JST))
+        self.assertEqual(end, datetime(2026, 6, 13, 0, 0, tzinfo=JST))
+
+    def test_days_ends_on_date_when_both_given(self):
+        # 3 days ending on the 10th: 8th, 9th, 10th.
+        start, end = dr.compute_window(self.NOW, date_str="2026-06-10", days=3)
+        self.assertEqual(start, datetime(2026, 6, 8, 0, 0, tzinfo=JST))
+        self.assertEqual(end, datetime(2026, 6, 11, 0, 0, tzinfo=JST))
+
+    def test_days_one_with_date_equals_single_date(self):
+        self.assertEqual(
+            dr.compute_window(self.NOW, date_str="2026-06-10", days=1),
+            dr.compute_window(self.NOW, date_str="2026-06-10"),
+        )
+
+    def test_days_below_one_is_rejected(self):
+        with self.assertRaises(ValueError):
+            dr.compute_window(self.NOW, days=0)
+
+
 class CollectScopeTests(unittest.TestCase):
     START = datetime(2026, 6, 9, 0, 0, tzinfo=JST)
     END = datetime(2026, 6, 10, 0, 0, tzinfo=JST)
