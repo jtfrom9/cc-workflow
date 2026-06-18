@@ -26,7 +26,8 @@ GitHub issue を起点に **分析 → 計画 → 並行実装（auto-review-loo
 
 **ローカルにファイル状態は持たない。**唯一の真実は **`auto-dev-loop` ラベルが付いた
 トラッキング issue の description**。description には人間向けの**進捗テーブル**と、機械可読な
-**fenced JSON**（全状態）が並ぶ。これにより:
+**fenced JSON**（全状態）が並ぶ。JSON は **HTML コメントで囲って非表示**にしてあり、GitHub の
+レンダリングでは見えないが生の body には残る（`load-body` がそこから復元する）。これにより:
 
 - issue を眺めれば進捗が分かる（テーブル）。ターミナルでも remote control でも `gh` で同じものを読める。
 - 状態が GitHub 上にあるので、別マシン／別セッションからでも再開できる。

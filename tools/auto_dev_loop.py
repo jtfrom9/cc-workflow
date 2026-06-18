@@ -163,8 +163,9 @@ def render_body(state: dict) -> str:
 
     The table is what a human sees when looking at the issue; the fenced
     ``json`` block is the authoritative machine state that :func:`parse_body`
-    reads back. Both live in the same description so the issue *is* the source
-    of truth.
+    reads back. The json is wrapped in an HTML comment so GitHub hides it from
+    the rendered view while it stays in the raw body. Both live in the same
+    description so the issue *is* the source of truth.
     """
     cfg = state.get("config", {})
     issues = state.get("issues", {})
@@ -206,10 +207,14 @@ def render_body(state: dict) -> str:
             f"| {deps} | {pr} | {upd} | {_cell(it.get('note'))} |"
         )
     out.append("")
+    # Wrap the machine state in an HTML comment so GitHub renders only the
+    # table; parse_body still recovers it from the raw body via the fence.
     out.append(STATE_MARKER)
+    out.append("<!--")
     out.append("```json")
     out.append(json.dumps(state, ensure_ascii=False, indent=2))
     out.append("```")
+    out.append("-->")
     return "\n".join(out) + "\n"
 
 

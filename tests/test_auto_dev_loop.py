@@ -15,6 +15,7 @@ Run from the repo root::
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -147,6 +148,15 @@ class BodyRoundTripTests(unittest.TestCase):
         table_region = body.split("```json")[0]
         self.assertNotIn("needs | escaping", table_region)
         self.assertIn("needs \\| escaping", table_region)
+
+    def test_machine_state_is_hidden_inside_html_comment(self):
+        # Humans should see only the progress table; the machine state is
+        # wrapped in an HTML comment so GitHub does not render it, while
+        # parse_body still recovers it from the raw body.
+        body = adl.render_body(_sample_state())
+        comments = re.findall(r"<!--(.*?)-->", body, re.DOTALL)
+        self.assertTrue(any("```json" in c for c in comments))
+        self.assertEqual(adl.parse_body(body), _sample_state())
 
     def test_parse_rejects_body_without_state_block(self):
         # A human clearing the fenced block must surface as an error, not a
