@@ -26,7 +26,8 @@ GitHub issue を起点に **分析 → 計画 → 並行実装（auto-review-loo
 
 **ローカルにファイル状態は持たない。**唯一の真実は **`auto-dev-loop` ラベルが付いた
 トラッキング issue の description**。description には人間向けの**進捗テーブル**と、機械可読な
-**fenced JSON**（全状態）が並ぶ。これにより:
+**fenced JSON**（全状態）が並ぶ。JSON は **HTML コメントで囲って非表示**にしてあり、GitHub の
+レンダリングでは見えないが生の body には残る（`load-body` がそこから復元する）。これにより:
 
 - issue を眺めれば進捗が分かる（テーブル）。ターミナルでも remote control でも `gh` で同じものを読める。
 - 状態が GitHub 上にあるので、別マシン／別セッションからでも再開できる。
@@ -80,18 +81,26 @@ python3 "${CLAUDE_PLUGIN_ROOT}/tools/auto_dev_loop.py" load-body \
 ④並行枠（既定 3）/ ⑤自動マージ方針 `off|conditional|green` / ⑥レビュー既定（無人なので
 auto-review-loop に渡すプリセット。既定 reviewers=`claude`、perspectives=全観点）。
 
-トラッキング issue を作る（タイトルは `AutoDevLoop: YYYY/MM/DD`、ラベル `auto-dev-loop`）:
+トラッキング issue を作る（ラベル `auto-dev-loop`）。タイトルは `AutoDevLoop: YYYY/MM/DD` だが、
+**同じ日に作る 2 本目以降**（前のランが close 済みで同日に新ランを始めた場合）は序数サフィックス
+`(.2nd)` `(.3rd)` … を付ける。今日の日付を持つトラッキング issue の既存本数（open/closed 問わず）
+を数え、`seq = 既存数 + 1` をヘルパに渡してタイトルを決める:
 
 ```sh
 DATE=$(date +%Y/%m/%d)
+# Count today's tracking issues (any state); the new one is the (count+1)-th run.
+PRIOR=$(gh issue list --label auto-dev-loop --state all \
+  --search "AutoDevLoop: $DATE in:title" --json title --jq 'length')
+TITLE=$(python3 "${CLAUDE_PLUGIN_ROOT}/tools/auto_dev_loop.py" tracking-title \
+  --date "$DATE" --seq "$((PRIOR + 1))" | sed -n 's/^title=//p')
 # gh issue create prints the new issue URL; the trailing path segment is its number.
-URL=$(gh issue create --label auto-dev-loop --title "AutoDevLoop: $DATE" --body "(initializing…)")
+URL=$(gh issue create --label auto-dev-loop --title "$TITLE" --body "(initializing…)")
 TN=${URL##*/}
 python3 "${CLAUDE_PLUGIN_ROOT}/tools/auto_dev_loop.py" new-state \
   --state /tmp/adl-state.json --base <base> --merge-target <target> \
   --labels <target-labels> --concurrency <N> --auto-merge <off|conditional|green> \
   --reviewers claude --perspectives correctness,requirements,security,performance,conventions,tests \
-  --tracking-issue "$TN" --title "AutoDevLoop: $DATE" --created "$DATE"
+  --tracking-issue "$TN" --title "$TITLE" --created "$DATE"
 ```
 
 `auto-dev-loop` ラベルが無ければ先に `gh label create auto-dev-loop` で作る。
@@ -120,6 +129,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/tools/auto_dev_loop.py" upsert-issues \
 
 ペイロードは `[{"number":123,"title":"...","status":"analyzed","deps":[120],"note":"..."}]`。
 実装可能なら `analyzed`、情報不足・スコープ不明・要設計判断は `blocked`、無効・重複は `cancelled`。
+
+**`blocked` にした issue には、何が曖昧／不足で着手できないかを当該 issue にコメントする**
+（人間が補足すれば `analyzed` に進める）。ただし**冪等**にする: 同じ blocker を毎パス、あるいは
+別トラッキング issue になっても重複コメントしない。状況に変化がなければコメントしない。詳細は
+[`references/playbook.md`](references/playbook.md) の「blocked 理由の通知」を参照。
 
 ### 3.2 ディスパッチと実装（FR-3）
 
@@ -207,13 +221,29 @@ gh issue edit <tracking#> --body-file /tmp/adl-body.md
 
 ## 7. 停止条件と継続（NFR-1 / NFR-3）
 
-- **明確な停止指示**（「止めて」「stop」、またはトラッキング issue のクローズ）→
-  `set-run-status --status stopped` → §3.5 で書き戻し → 現状を要約。`ScheduleWakeup` を予約せず終了。
-- **全 issue が merged/cancelled で新規も無い**（`summary` の `active_issues=0`）→
-  `set-run-status --status done`、トラッキング issue をクローズしてよいか確認。
-- それ以外は、**全 PR が確認待ちになっても止めない**。停止指示が無い限り §3 のパスを継続予約し、
+ループを**終了する**ときは必ず「最後の状況を description に書き戻してから、トラッキング issue を
+close する」。書き戻す前に close すると最終状態が残らないので、順序を守る:
+
+1. `set-run-status --status <stopped|done>`
+2. §3.5（`render` → `gh issue edit`）で最後の状況を description に反映する。
+3. `gh issue close <tracking#>`（必要なら `--comment` で終了理由を残す）。
+4. 現状を要約し、`ScheduleWakeup` を予約せず終了する。
+
+終了経路:
+
+- **明確な停止指示**（「止めて」「stop」）→ `status=stopped` で上記 1–4。
+- **自然収束**（全 issue が merged/cancelled で新規も無い ＝ `summary` の `active_issues=0`）→
+  `status=done` で上記 1–4。**確認は求めず自動で close する**。
+- **トラッキング issue が人手で close された**のを検知 → 既に閉じているので 3 は不要。`status=stopped`
+  を書き戻し（closed issue でも `gh issue edit` は可能）、要約して終了する。
+
+継続と中断（終了ではない）:
+
+- 上記以外は、**全 PR が確認待ちになっても止めない**。停止指示が無い限り §3 のパスを継続予約し、
   PR/issue の確認を回し続ける（「自走」の要件）。
-- ユーザはいつでも中断できる。中断要求が来たら即座に予約を止め、現状を要約して制御を返す。
+- **中断**（「ちょっと待って」等、指示を与えるための一時停止）は *終了ではない*。即座に予約を止め、
+  現状を要約して制御を返すが、トラッキング issue は **open のまま**残す（§1 の再開を効かせるため）。
+  ユーザが続けて停止を指示したら、上の「明確な停止指示」経路で close する。
 
 ## 可観測性（NFR-2）
 

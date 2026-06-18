@@ -37,11 +37,14 @@ Subcommands (all print ``key=value`` lines on stdout):
     set-run-status --state f --status running|stopped|done
     next-ready   --state f
     summary      --state f
+    blocked-marker --reason text         (fingerprint + marker for a blocker)
+    tracking-title --date d --seq N      (tracking issue title for the day)
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -77,6 +80,57 @@ DEFAULT_PERSPECTIVES = [
 
 STATE_MARKER = "<!-- auto-dev-loop:state — machine-readable; do not edit by hand -->"
 _JSON_BLOCK_RE = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
+
+
+# ----------------------------------------------------------------------
+# Blocked-reason fingerprint (idempotent issue comments)
+# ----------------------------------------------------------------------
+
+def blocked_fingerprint(reason: str) -> str:
+    """A stable short fingerprint of a blocked *reason*.
+
+    When an issue is held as ``blocked`` the skill leaves a comment on the
+    issue explaining what is ambiguous / missing. To avoid re-posting the same
+    comment every pass — and to stay idempotent even across a *fresh* tracking
+    issue, whose working state starts empty — the comment carries this
+    fingerprint in a hidden marker (:func:`blocked_marker`). The skill skips
+    commenting when the issue already bears a marker with the same fingerprint;
+    a different fingerprint means the blocker changed and warrants a fresh note.
+
+    Normalized case- and whitespace-insensitively so trivial reformatting of
+    the same reason does not look like a new blocker.
+    """
+    norm = " ".join((reason or "").split()).casefold()
+    return hashlib.sha1(norm.encode("utf-8")).hexdigest()[:12]
+
+
+def blocked_marker(fingerprint: str) -> str:
+    """The hidden HTML-comment marker embedded in a blocked-reason comment."""
+    return f"<!-- auto-dev-loop:blocked fp={fingerprint} -->"
+
+
+# ----------------------------------------------------------------------
+# Tracking-issue title
+# ----------------------------------------------------------------------
+
+def _ordinal(n: int) -> str:
+    """English ordinal: 1->1st, 2->2nd, 3->3rd, 4->4th, 11->11th, 21->21st."""
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def tracking_title(date: str, seq: int) -> str:
+    """Title for the tracking issue created on ``date`` as the ``seq``-th run.
+
+    The first run of a day is plain ``AutoDevLoop: <date>``; the 2nd and later
+    runs (a new run started after an earlier one closed) get an ordinal suffix
+    — ``(.2nd)``, ``(.3rd)``, … — so same-day issues are distinguishable.
+    """
+    base = f"AutoDevLoop: {date}"
+    return base if seq <= 1 else f"{base} (.{_ordinal(seq)})"
 
 
 # ----------------------------------------------------------------------
@@ -134,8 +188,9 @@ def render_body(state: dict) -> str:
 
     The table is what a human sees when looking at the issue; the fenced
     ``json`` block is the authoritative machine state that :func:`parse_body`
-    reads back. Both live in the same description so the issue *is* the source
-    of truth.
+    reads back. The json is wrapped in an HTML comment so GitHub hides it from
+    the rendered view while it stays in the raw body. Both live in the same
+    description so the issue *is* the source of truth.
     """
     cfg = state.get("config", {})
     issues = state.get("issues", {})
@@ -177,10 +232,14 @@ def render_body(state: dict) -> str:
             f"| {deps} | {pr} | {upd} | {_cell(it.get('note'))} |"
         )
     out.append("")
+    # Wrap the machine state in an HTML comment so GitHub renders only the
+    # table; parse_body still recovers it from the raw body via the fence.
     out.append(STATE_MARKER)
+    out.append("<!--")
     out.append("```json")
     out.append(json.dumps(state, ensure_ascii=False, indent=2))
     out.append("```")
+    out.append("-->")
     return "\n".join(out) + "\n"
 
 
@@ -295,6 +354,7 @@ def cmd_upsert_issues(args) -> int:
             "pr_number": existing.get("pr_number"),
             "issue_watermark": existing.get("issue_watermark", ""),
             "pr_watermark": existing.get("pr_watermark", ""),
+            "blocked_comment_fp": existing.get("blocked_comment_fp", ""),
             "updated_at": _common.now_iso(),
         }
         added += 1
@@ -321,6 +381,8 @@ def cmd_update_issue(args) -> int:
         it["pr_number"] = int(args.pr)
     if args.note is not None:
         it["note"] = args.note
+    if args.blocked_fp is not None:
+        it["blocked_comment_fp"] = args.blocked_fp
     if args.clear_deps:
         it["deps"] = []
     if args.add_dep is not None:
@@ -334,6 +396,19 @@ def cmd_update_issue(args) -> int:
     print(f"status={it['status']}")
     print(f"pr_number={it.get('pr_number')}")
     print(f"deps={','.join(str(d) for d in it.get('deps', []))}")
+    print(f"blocked_comment_fp={it.get('blocked_comment_fp', '')}")
+    return 0
+
+
+def cmd_blocked_marker(args) -> int:
+    fp = blocked_fingerprint(args.reason)
+    print(f"fingerprint={fp}")
+    print(f"marker={blocked_marker(fp)}")
+    return 0
+
+
+def cmd_tracking_title(args) -> int:
+    print(f"title={tracking_title(args.date, int(args.seq))}")
     return 0
 
 
@@ -446,9 +521,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.add_argument("--worktree", default=None)
     p_ui.add_argument("--pr", default=None, type=int)
     p_ui.add_argument("--note", default=None)
+    p_ui.add_argument(
+        "--blocked-fp", default=None,
+        help="fingerprint of the blocked-reason comment last posted to the issue",
+    )
     p_ui.add_argument("--add-dep", default=None, type=int)
     p_ui.add_argument("--clear-deps", action="store_true")
     p_ui.set_defaults(func=cmd_update_issue)
+
+    p_bm = sub.add_parser(
+        "blocked-marker",
+        help="print the fingerprint + hidden marker for a blocked reason",
+    )
+    p_bm.add_argument("--reason", required=True)
+    p_bm.set_defaults(func=cmd_blocked_marker)
+
+    p_tt = sub.add_parser(
+        "tracking-title",
+        help="compose the tracking issue title for the seq-th run of a day",
+    )
+    p_tt.add_argument("--date", required=True, help="YYYY/MM/DD")
+    p_tt.add_argument("--seq", required=True, help="1-based run number for the day")
+    p_tt.set_defaults(func=cmd_tracking_title)
 
     p_wm = sub.add_parser("watermark", help="record a comment watermark")
     p_wm.add_argument("--state", required=True)
