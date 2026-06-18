@@ -5,6 +5,7 @@ SKILL.md のフェーズを実行するときの具体手順。SKILL.md が「�
 ## 目次
 
 - [issue 分析の基準](#issue-分析の基準)
+- [blocked 理由の通知](#blocked-理由の通知)
 - [依存関係の検出と計画](#依存関係の検出と計画)
 - [worktree 運用](#worktree-運用)
 - [auto-review-loop の起動（無人）](#auto-review-loop-の起動無人)
@@ -29,6 +30,53 @@ SKILL.md のフェーズを実行するときの具体手順。SKILL.md が「�
 - **既に対応済み / 重複 / 無効**: → `cancelled` とし、理由を `note` に。
 
 判定は保守的に。曖昧なら `analyzed` にせず `blocked` にして、§コメント監視で人間の補足を待つ。
+`blocked` にしたら、何が曖昧／不足かを当該 issue にコメントで知らせる（→「blocked 理由の通知」）。
+
+## blocked 理由の通知
+
+issue を `blocked` にしたら、**何が曖昧で・何があれば着手できるか**を当該 issue（トラッキング
+issue ではなく対象 issue 本体）にコメントする。人間がそれを読んで補足すれば、次パスの分析で
+`analyzed` に進める。コメント本文は具体的に: 不足している仕様／受け入れ条件／設計判断を箇条書きで、
+「これが分かれば着手できる」形にする。
+
+**冪等性（重複コメントを出さない）**。同じ blocker を毎パス書いたり、別日の別トラッキング issue に
+なっても蒸し返したりしない。状況に変化がなければコメントしない。実現方法は、コメントに**隠しマーカー**
+（blocker の指紋つき）を埋め、投稿前に同じ指紋のマーカーが既にあるかを確認する:
+
+```sh
+# 1) blocked 理由から指紋を得る（理由文は state の note と同じものを使う）
+FP=$(python3 "${CLAUDE_PLUGIN_ROOT}/tools/auto_dev_loop.py" blocked-marker --reason "<理由>" \
+  | sed -n 's/^fingerprint=//p')
+MARKER="<!-- auto-dev-loop:blocked fp=$FP -->"
+
+# 2) 既存コメントに同じ指紋のマーカーがあるか（過去に通知済みか）を確認
+gh issue view <N> --json comments --jq '.comments[].body' | grep -qF "auto-dev-loop:blocked fp=$FP"
+```
+
+判定:
+
+- `state.issues[N].blocked_comment_fp` が `$FP` と一致 → **同一トラッキング内で通知済み**。何もしない。
+- 上の `grep` がヒット → **過去に（別トラッキング issue 含め）同じ blocker を通知済み**。状況不変なので
+  コメントしない。指紋だけ `update-issue --blocked-fp "$FP"` で state に記録しておく。
+- どちらでもない（マーカー無し、または**指紋が違う＝blocker が変わった**）→ 新たにコメントする。本文末尾に
+  `$MARKER` を必ず含める。投稿後 `update-issue --number N --blocked-fp "$FP"` で記録。
+
+```sh
+gh issue comment <N> --body "$(cat <<EOF
+このタスクは現状では着手保留（blocked）です。次が分かれば進められます:
+
+- <不足している仕様/受け入れ条件/設計判断>
+
+$MARKER
+EOF
+)"
+python3 "${CLAUDE_PLUGIN_ROOT}/tools/auto_dev_loop.py" update-issue \
+  --state /tmp/adl-state.json --number <N> --blocked-fp "$FP"
+```
+
+これにより「以前から変化が無く、指示の追加が必要」な issue はトラッキング issue 上では `blocked` +
+`note`（理由）+ `blocked_comment_fp`（通知済みの指紋）で管理され、対象 issue 側には重複しない 1 本の
+案内コメントだけが残る。`analyzed` に戻った／blocker が変わった issue は指紋が変わるので、改めて通知される。
 
 複数 issue を分析するときは `Agent` サブエージェントに分担させ、各々に以下を構造化で返させる:
 

@@ -121,6 +121,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/tools/auto_dev_loop.py" upsert-issues \
 ペイロードは `[{"number":123,"title":"...","status":"analyzed","deps":[120],"note":"..."}]`。
 実装可能なら `analyzed`、情報不足・スコープ不明・要設計判断は `blocked`、無効・重複は `cancelled`。
 
+**`blocked` にした issue には、何が曖昧／不足で着手できないかを当該 issue にコメントする**
+（人間が補足すれば `analyzed` に進める）。ただし**冪等**にする: 同じ blocker を毎パス、あるいは
+別トラッキング issue になっても重複コメントしない。状況に変化がなければコメントしない。詳細は
+[`references/playbook.md`](references/playbook.md) の「blocked 理由の通知」を参照。
+
 ### 3.2 ディスパッチと実装（FR-3）
 
 **いま着手してよい issue** はヘルパが決定的に算出する（依存が全て merged、かつ並行枠に空き）:
@@ -207,13 +212,29 @@ gh issue edit <tracking#> --body-file /tmp/adl-body.md
 
 ## 7. 停止条件と継続（NFR-1 / NFR-3）
 
-- **明確な停止指示**（「止めて」「stop」、またはトラッキング issue のクローズ）→
-  `set-run-status --status stopped` → §3.5 で書き戻し → 現状を要約。`ScheduleWakeup` を予約せず終了。
-- **全 issue が merged/cancelled で新規も無い**（`summary` の `active_issues=0`）→
-  `set-run-status --status done`、トラッキング issue をクローズしてよいか確認。
-- それ以外は、**全 PR が確認待ちになっても止めない**。停止指示が無い限り §3 のパスを継続予約し、
+ループを**終了する**ときは必ず「最後の状況を description に書き戻してから、トラッキング issue を
+close する」。書き戻す前に close すると最終状態が残らないので、順序を守る:
+
+1. `set-run-status --status <stopped|done>`
+2. §3.5（`render` → `gh issue edit`）で最後の状況を description に反映する。
+3. `gh issue close <tracking#>`（必要なら `--comment` で終了理由を残す）。
+4. 現状を要約し、`ScheduleWakeup` を予約せず終了する。
+
+終了経路:
+
+- **明確な停止指示**（「止めて」「stop」）→ `status=stopped` で上記 1–4。
+- **自然収束**（全 issue が merged/cancelled で新規も無い ＝ `summary` の `active_issues=0`）→
+  `status=done` で上記 1–4。**確認は求めず自動で close する**。
+- **トラッキング issue が人手で close された**のを検知 → 既に閉じているので 3 は不要。`status=stopped`
+  を書き戻し（closed issue でも `gh issue edit` は可能）、要約して終了する。
+
+継続と中断（終了ではない）:
+
+- 上記以外は、**全 PR が確認待ちになっても止めない**。停止指示が無い限り §3 のパスを継続予約し、
   PR/issue の確認を回し続ける（「自走」の要件）。
-- ユーザはいつでも中断できる。中断要求が来たら即座に予約を止め、現状を要約して制御を返す。
+- **中断**（「ちょっと待って」等、指示を与えるための一時停止）は *終了ではない*。即座に予約を止め、
+  現状を要約して制御を返すが、トラッキング issue は **open のまま**残す（§1 の再開を効かせるため）。
+  ユーザが続けて停止を指示したら、上の「明確な停止指示」経路で close する。
 
 ## 可観測性（NFR-2）
 

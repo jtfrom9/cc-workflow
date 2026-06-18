@@ -14,7 +14,9 @@ Run from the repo root::
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -152,6 +154,63 @@ class BodyRoundTripTests(unittest.TestCase):
         # convention), which is a BaseException, not an Exception.
         with self.assertRaises(SystemExit):
             adl.parse_body("# just a heading\n\nno state here\n")
+
+
+class BlockedFingerprintTests(unittest.TestCase):
+    """The blocked-reason fingerprint lets the skill skip re-commenting the
+    same blocker on an issue — even across a *different* tracking issue, where
+    the working state starts empty and the only durable signal is the marker
+    already embedded in the issue's own comments."""
+
+    def test_fingerprint_is_stable_and_whitespace_case_insensitive(self):
+        a = adl.blocked_fingerprint("Scope unclear: which screens?")
+        b = adl.blocked_fingerprint("  scope unclear:   WHICH screens?  ")
+        self.assertTrue(a)
+        self.assertEqual(a, b)
+
+    def test_different_reasons_get_different_fingerprints(self):
+        self.assertNotEqual(
+            adl.blocked_fingerprint("missing acceptance criteria"),
+            adl.blocked_fingerprint("needs an architecture decision"),
+        )
+
+    def test_marker_embeds_the_fingerprint(self):
+        fp = adl.blocked_fingerprint("missing acceptance criteria")
+        marker = adl.blocked_marker(fp)
+        self.assertIn(fp, marker)
+        # Stable, greppable token so the skill can detect a prior comment.
+        self.assertIn("auto-dev-loop:blocked", marker)
+
+
+class UpdateIssueBlockedFpTests(unittest.TestCase):
+    def test_update_issue_records_blocked_comment_fingerprint(self):
+        state = {
+            "title": "t", "created": "", "tracking_issue": 1, "status": "running",
+            "config": {
+                "base_branch": "main", "merge_target": "main", "labels": [],
+                "concurrency": 1, "auto_merge": "off",
+                "reviewers": ["claude"], "perspectives": ["tests"],
+            },
+            "issues": {
+                "9": {
+                    "number": 9, "title": "x", "status": "blocked", "deps": [],
+                    "branch": "", "worktree": "", "pr_number": None,
+                    "issue_watermark": "", "pr_watermark": "",
+                    "blocked_comment_fp": "", "note": "scope unclear",
+                    "updated_at": "2026-06-18T00:00:00+0900",
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as d:
+            sf = Path(d) / "state.json"
+            sf.write_text(json.dumps(state), encoding="utf-8")
+            args = adl.build_parser().parse_args(
+                ["update-issue", "--state", str(sf), "--number", "9",
+                 "--blocked-fp", "abc123"]
+            )
+            args.func(args)
+            saved = json.loads(sf.read_text(encoding="utf-8"))
+        self.assertEqual(saved["issues"]["9"]["blocked_comment_fp"], "abc123")
 
 
 if __name__ == "__main__":

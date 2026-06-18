@@ -37,11 +37,13 @@ Subcommands (all print ``key=value`` lines on stdout):
     set-run-status --state f --status running|stopped|done
     next-ready   --state f
     summary      --state f
+    blocked-marker --reason text         (fingerprint + marker for a blocker)
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -77,6 +79,33 @@ DEFAULT_PERSPECTIVES = [
 
 STATE_MARKER = "<!-- auto-dev-loop:state — machine-readable; do not edit by hand -->"
 _JSON_BLOCK_RE = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
+
+
+# ----------------------------------------------------------------------
+# Blocked-reason fingerprint (idempotent issue comments)
+# ----------------------------------------------------------------------
+
+def blocked_fingerprint(reason: str) -> str:
+    """A stable short fingerprint of a blocked *reason*.
+
+    When an issue is held as ``blocked`` the skill leaves a comment on the
+    issue explaining what is ambiguous / missing. To avoid re-posting the same
+    comment every pass — and to stay idempotent even across a *fresh* tracking
+    issue, whose working state starts empty — the comment carries this
+    fingerprint in a hidden marker (:func:`blocked_marker`). The skill skips
+    commenting when the issue already bears a marker with the same fingerprint;
+    a different fingerprint means the blocker changed and warrants a fresh note.
+
+    Normalized case- and whitespace-insensitively so trivial reformatting of
+    the same reason does not look like a new blocker.
+    """
+    norm = " ".join((reason or "").split()).casefold()
+    return hashlib.sha1(norm.encode("utf-8")).hexdigest()[:12]
+
+
+def blocked_marker(fingerprint: str) -> str:
+    """The hidden HTML-comment marker embedded in a blocked-reason comment."""
+    return f"<!-- auto-dev-loop:blocked fp={fingerprint} -->"
 
 
 # ----------------------------------------------------------------------
@@ -295,6 +324,7 @@ def cmd_upsert_issues(args) -> int:
             "pr_number": existing.get("pr_number"),
             "issue_watermark": existing.get("issue_watermark", ""),
             "pr_watermark": existing.get("pr_watermark", ""),
+            "blocked_comment_fp": existing.get("blocked_comment_fp", ""),
             "updated_at": _common.now_iso(),
         }
         added += 1
@@ -321,6 +351,8 @@ def cmd_update_issue(args) -> int:
         it["pr_number"] = int(args.pr)
     if args.note is not None:
         it["note"] = args.note
+    if args.blocked_fp is not None:
+        it["blocked_comment_fp"] = args.blocked_fp
     if args.clear_deps:
         it["deps"] = []
     if args.add_dep is not None:
@@ -334,6 +366,14 @@ def cmd_update_issue(args) -> int:
     print(f"status={it['status']}")
     print(f"pr_number={it.get('pr_number')}")
     print(f"deps={','.join(str(d) for d in it.get('deps', []))}")
+    print(f"blocked_comment_fp={it.get('blocked_comment_fp', '')}")
+    return 0
+
+
+def cmd_blocked_marker(args) -> int:
+    fp = blocked_fingerprint(args.reason)
+    print(f"fingerprint={fp}")
+    print(f"marker={blocked_marker(fp)}")
     return 0
 
 
@@ -446,9 +486,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui.add_argument("--worktree", default=None)
     p_ui.add_argument("--pr", default=None, type=int)
     p_ui.add_argument("--note", default=None)
+    p_ui.add_argument(
+        "--blocked-fp", default=None,
+        help="fingerprint of the blocked-reason comment last posted to the issue",
+    )
     p_ui.add_argument("--add-dep", default=None, type=int)
     p_ui.add_argument("--clear-deps", action="store_true")
     p_ui.set_defaults(func=cmd_update_issue)
+
+    p_bm = sub.add_parser(
+        "blocked-marker",
+        help="print the fingerprint + hidden marker for a blocked reason",
+    )
+    p_bm.add_argument("--reason", required=True)
+    p_bm.set_defaults(func=cmd_blocked_marker)
 
     p_wm = sub.add_parser("watermark", help="record a comment watermark")
     p_wm.add_argument("--state", required=True)
