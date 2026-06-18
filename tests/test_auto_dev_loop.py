@@ -192,6 +192,34 @@ class BlockedFingerprintTests(unittest.TestCase):
         self.assertIn("auto-dev-loop:blocked", marker)
 
 
+class TrackingTitleTests(unittest.TestCase):
+    """Same-day tracking issues past the first get an ordinal suffix so a fresh
+    run started after an earlier one closed is distinguishable in the title."""
+
+    def test_first_of_the_day_has_no_suffix(self):
+        self.assertEqual(
+            adl.tracking_title("2026/06/18", 1), "AutoDevLoop: 2026/06/18"
+        )
+
+    def test_later_runs_get_ordinal_suffix(self):
+        self.assertEqual(
+            adl.tracking_title("2026/06/18", 2), "AutoDevLoop: 2026/06/18 (.2nd)"
+        )
+        self.assertEqual(
+            adl.tracking_title("2026/06/18", 3), "AutoDevLoop: 2026/06/18 (.3rd)"
+        )
+        self.assertEqual(
+            adl.tracking_title("2026/06/18", 4), "AutoDevLoop: 2026/06/18 (.4th)"
+        )
+
+    def test_ordinal_handles_the_teens_and_ones(self):
+        self.assertEqual(adl._ordinal(11), "11th")
+        self.assertEqual(adl._ordinal(12), "12th")
+        self.assertEqual(adl._ordinal(13), "13th")
+        self.assertEqual(adl._ordinal(21), "21st")
+        self.assertEqual(adl._ordinal(22), "22nd")
+
+
 class UpdateIssueBlockedFpTests(unittest.TestCase):
     def test_update_issue_records_blocked_comment_fingerprint(self):
         state = {

@@ -38,6 +38,7 @@ Subcommands (all print ``key=value`` lines on stdout):
     next-ready   --state f
     summary      --state f
     blocked-marker --reason text         (fingerprint + marker for a blocker)
+    tracking-title --date d --seq N      (tracking issue title for the day)
 """
 
 from __future__ import annotations
@@ -106,6 +107,30 @@ def blocked_fingerprint(reason: str) -> str:
 def blocked_marker(fingerprint: str) -> str:
     """The hidden HTML-comment marker embedded in a blocked-reason comment."""
     return f"<!-- auto-dev-loop:blocked fp={fingerprint} -->"
+
+
+# ----------------------------------------------------------------------
+# Tracking-issue title
+# ----------------------------------------------------------------------
+
+def _ordinal(n: int) -> str:
+    """English ordinal: 1->1st, 2->2nd, 3->3rd, 4->4th, 11->11th, 21->21st."""
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def tracking_title(date: str, seq: int) -> str:
+    """Title for the tracking issue created on ``date`` as the ``seq``-th run.
+
+    The first run of a day is plain ``AutoDevLoop: <date>``; the 2nd and later
+    runs (a new run started after an earlier one closed) get an ordinal suffix
+    — ``(.2nd)``, ``(.3rd)``, … — so same-day issues are distinguishable.
+    """
+    base = f"AutoDevLoop: {date}"
+    return base if seq <= 1 else f"{base} (.{_ordinal(seq)})"
 
 
 # ----------------------------------------------------------------------
@@ -382,6 +407,11 @@ def cmd_blocked_marker(args) -> int:
     return 0
 
 
+def cmd_tracking_title(args) -> int:
+    print(f"title={tracking_title(args.date, int(args.seq))}")
+    return 0
+
+
 def cmd_watermark(args) -> int:
     state = load_state_file(args.state)
     it = state.get("issues", {}).get(str(args.number))
@@ -505,6 +535,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_bm.add_argument("--reason", required=True)
     p_bm.set_defaults(func=cmd_blocked_marker)
+
+    p_tt = sub.add_parser(
+        "tracking-title",
+        help="compose the tracking issue title for the seq-th run of a day",
+    )
+    p_tt.add_argument("--date", required=True, help="YYYY/MM/DD")
+    p_tt.add_argument("--seq", required=True, help="1-based run number for the day")
+    p_tt.set_defaults(func=cmd_tracking_title)
 
     p_wm = sub.add_parser("watermark", help="record a comment watermark")
     p_wm.add_argument("--state", required=True)

@@ -81,18 +81,26 @@ python3 "${CLAUDE_PLUGIN_ROOT}/tools/auto_dev_loop.py" load-body \
 ④並行枠（既定 3）/ ⑤自動マージ方針 `off|conditional|green` / ⑥レビュー既定（無人なので
 auto-review-loop に渡すプリセット。既定 reviewers=`claude`、perspectives=全観点）。
 
-トラッキング issue を作る（タイトルは `AutoDevLoop: YYYY/MM/DD`、ラベル `auto-dev-loop`）:
+トラッキング issue を作る（ラベル `auto-dev-loop`）。タイトルは `AutoDevLoop: YYYY/MM/DD` だが、
+**同じ日に作る 2 本目以降**（前のランが close 済みで同日に新ランを始めた場合）は序数サフィックス
+`(.2nd)` `(.3rd)` … を付ける。今日の日付を持つトラッキング issue の既存本数（open/closed 問わず）
+を数え、`seq = 既存数 + 1` をヘルパに渡してタイトルを決める:
 
 ```sh
 DATE=$(date +%Y/%m/%d)
+# Count today's tracking issues (any state); the new one is the (count+1)-th run.
+PRIOR=$(gh issue list --label auto-dev-loop --state all \
+  --search "AutoDevLoop: $DATE in:title" --json title --jq 'length')
+TITLE=$(python3 "${CLAUDE_PLUGIN_ROOT}/tools/auto_dev_loop.py" tracking-title \
+  --date "$DATE" --seq "$((PRIOR + 1))" | sed -n 's/^title=//p')
 # gh issue create prints the new issue URL; the trailing path segment is its number.
-URL=$(gh issue create --label auto-dev-loop --title "AutoDevLoop: $DATE" --body "(initializing…)")
+URL=$(gh issue create --label auto-dev-loop --title "$TITLE" --body "(initializing…)")
 TN=${URL##*/}
 python3 "${CLAUDE_PLUGIN_ROOT}/tools/auto_dev_loop.py" new-state \
   --state /tmp/adl-state.json --base <base> --merge-target <target> \
   --labels <target-labels> --concurrency <N> --auto-merge <off|conditional|green> \
   --reviewers claude --perspectives correctness,requirements,security,performance,conventions,tests \
-  --tracking-issue "$TN" --title "AutoDevLoop: $DATE" --created "$DATE"
+  --tracking-issue "$TN" --title "$TITLE" --created "$DATE"
 ```
 
 `auto-dev-loop` ラベルが無ければ先に `gh label create auto-dev-loop` で作る。
