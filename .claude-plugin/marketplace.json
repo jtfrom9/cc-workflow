@@ -8,7 +8,7 @@
     {
       "name": "cc-workflow",
       "source": "./",
-      "description": "Auto-checkpoints, plan-file organization, async summaries, and CLAUDE.md injection for Claude Code."
+      "description": "CLAUDE.md injection, auto review/dev loops, daily reports, and a usage-aware status line for Claude Code."
     }
   ]
 }

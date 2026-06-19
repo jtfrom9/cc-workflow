@@ -1,6 +1,6 @@
 {
   "name": "cc-workflow",
-  "description": "Auto-checkpoints, plan-file organization, async summaries, and CLAUDE.md injection for Claude Code.",
+  "description": "CLAUDE.md injection, auto review/dev loops, daily reports, and a usage-aware status line for Claude Code.",
   "version": "0.12.0",
   "author": {
     "name": "jtfrom9 (Jun Tachikawa)"
@@ -24,29 +24,6 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/touch-session.sh"]
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "ExitPlanMode",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/tools/relocate_plan.py"]
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/tools/checkpoint.py", "--auto"]
           }
         ]
       }
