@@ -1,7 +1,7 @@
 {
   "name": "cc-workflow",
   "description": "CLAUDE.md injection, auto review/dev loops, daily reports, and a usage-aware status line for Claude Code.",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "author": {
     "name": "jtfrom9 (Jun Tachikawa)"
   },
