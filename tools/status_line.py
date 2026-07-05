@@ -16,13 +16,17 @@ Reads the current session transcript (``~/.claude/projects/<encoded-cwd>/
 ``message.usage`` entry, and renders the cumulative input tokens against
 the model's known context window.
 
+Also renders the session's estimated usage-based cost from the
+``cost.total_cost_usd`` field Claude Code provides on stdin — this is what
+shows up for metered, non-subscription-included models such as Fable 5.
+
 Appends a session rate-limit "remaining" segment from
 ``session_usage.load_segment()`` (5-hour / 7-day windows), refreshed in the
 background so the status line never blocks on the network.
 
 Output example::
 
-    📁 cc-workflow · 🧠 ██████░░░░ 562k/1M (56%) · claude-opus-4-7 · 🟢 85% 2h21m · 7d 96%
+    📁 cc-workflow · 🧠 ██████░░░░ 562k/1M (56%) · claude-opus-4-7 · 💰$1.23 · 🟢 85% 2h21m · 7d 96%
 """
 
 from __future__ import annotations
@@ -148,6 +152,25 @@ def _append(line: str, segment: str) -> str:
     return f"{line} · {segment}" if segment else line
 
 
+def _cost_segment(payload: dict) -> str:
+    """Render the session's estimated usage-based cost (``cost.total_cost_usd``).
+
+    Covers metered models like Fable 5 that are billed per-token regardless
+    of a Pro/Max subscription. "" when absent, non-numeric, or zero.
+    """
+    cost = payload.get("cost")
+    if not isinstance(cost, dict):
+        return ""
+    total = cost.get("total_cost_usd")
+    try:
+        total = float(total)
+    except (TypeError, ValueError):
+        return ""
+    if total <= 0:
+        return ""
+    return f"💰${total:.2f}"
+
+
 def _folder_label(payload: dict) -> str:
     """Basename of the session's working directory, or "" if unknown."""
     cwd = payload.get("cwd") or (payload.get("workspace") or {}).get("current_dir") or ""
@@ -169,6 +192,7 @@ def main() -> int:
 
     # Session rate-limit segment (independent of the conversation transcript).
     session = session_usage.load_segment()
+    cost = _cost_segment(payload)
 
     # Leading folder label (current working directory basename).
     folder = _folder_label(payload)
@@ -179,7 +203,8 @@ def main() -> int:
 
     if not usage:
         # Render a minimal line so the status bar still shows something useful.
-        print(head + _append(f"🧠 — · {_short_model_id(model_id) or '?'}", session))
+        line = _append(f"🧠 — · {_short_model_id(model_id) or '?'}", cost)
+        print(head + _append(line, session))
         return 0
 
     used = (
@@ -192,7 +217,8 @@ def main() -> int:
     bar = _bar(used, max_tokens)
     short = _short_model_id(model_id) or "?"
 
-    print(head + _append(f"🧠 {bar} {_fmt(used)}/{_fmt(max_tokens)} ({pct}%) · {short}", session))
+    line = _append(f"🧠 {bar} {_fmt(used)}/{_fmt(max_tokens)} ({pct}%) · {short}", cost)
+    print(head + _append(line, session))
     return 0
 
 
