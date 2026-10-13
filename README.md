@@ -61,11 +61,11 @@ Codex をレビュアーに使う場合は Codex CLI のインストールとロ
 ### ステータスライン
 
 `tools/status_line.py` を `~/.claude/settings.json` の `statusLine` に設定すると、
-コンテキスト窓の使用量と **レート制限ウィンドウの残量** を1行で表示する。
+コンテキスト窓の使用量・推定コスト・**レート制限ウィンドウの残量** を1行で表示する。
 
 ```
-📁 cc-workflow · 🧠 ██████░░░░ 562k/1M (56%) · claude-opus-4-8 · 🟢 85% 2h21m · 7d 96%
-└ フォルダ ┘   └─ コンテキスト窓使用量 ──────────────────┘   └ 5時間窓の残量＋リセット ┘ └ 7日 ┘
+📁 cc-workflow · 🧠 ██████░░░░ 562k/1M (56%) · claude-opus-5-5 · 💰$1.23 · 🟢 85% 2h21m · 7d 96%
+└ フォルダ ┘   └─ コンテキスト窓使用量 ──────────────────┘   └ 推定コスト ┘ └ 5時間窓の残量＋リセット ┘ └ 7日 ┘
 ```
 
 ```json
@@ -77,22 +77,16 @@ Codex をレビュアーに使う場合は Codex CLI のインストールとロ
 }
 ```
 
-セッション残量は **ccusage を使わず**、Anthropic の OAuth usage エンドポイント
-（`/api/oauth/usage`）から 5時間／7日ウィンドウの `utilization` と `resets_at` を直接取得する。
-アクセストークンの取得は **macOS=Keychain（`Claude Code-credentials`）／ Windows・Linux=
-`~/.claude/.credentials.json`** の両対応。ステータスラインはネットワークでブロックしないよう、
-キャッシュを即描画し TTL 超過時のみバックグラウンドで更新する（stale-while-revalidate）。
-残量に応じて 🟢 / 🟡 / 🟠 / 🔴 を出し分ける。
+表示内容はすべて Claude Code が stdin に渡す JSON（[公式 docs](https://code.claude.com/docs/en/statusline)）
+から描画し、transcript の解析やネットワークアクセスは行わない。
 
-| 環境変数 | デフォルト | 意味 |
-|---|---|---|
-| `CC_WORKFLOW_SESSION_USAGE` | `1` | `0` でセッション残量セグメントを無効化（ネットワーク呼び出しなし） |
-| `CC_WORKFLOW_USAGE_TTL` | `60` | usage キャッシュの鮮度（秒）。超過でバックグラウンド更新 |
-| `CLAUDE_CODE_OAUTH_TOKEN` | （未設定） | トークンの上書き。設定時は Keychain／ファイル探索をスキップ |
+- 🧠: `context_window`（`used_percentage` / `context_window_size`）。初回応答前と `/compact` 直後は `—`
+- 💰: `cost.total_cost_usd`。Claude Code がクライアント側で定価から見積もった値で、実請求額ではない
+- 🟢/🟡/🟠/🔴: `rate_limits.five_hour` / `seven_day` の残量。Pro/Max サブスクリプションのみ表示
 
 ## 保存されるデータ
 
-このプラグインは `~/.cc-workflow/` にランタイム状態を保存する。`auto-review-loop` の run 状態（`reviews/`）、ステータスライン用の usage キャッシュ（`cache/`）、セッション毎の sentinel（`state/`）が対象。詳細は [ストレージレイアウト](docs/storage-layout.md) を参照。
+このプラグインは `~/.cc-workflow/` にランタイム状態を保存する。`auto-review-loop` の run 状態（`reviews/`）、セッション毎の sentinel（`state/`）が対象。詳細は [ストレージレイアウト](docs/storage-layout.md) を参照。
 
 ## ドキュメント
 

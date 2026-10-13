@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Status line for Claude Code: show context window usage.
+"""Status line for Claude Code: context usage, cost and rate-limit windows.
 
 Wire it up by adding the following to ``~/.claude/settings.json`` (or any
 settings file loaded via ``--settings``)::
@@ -11,35 +11,26 @@ settings file loaded via ``--settings``)::
       }
     }
 
-Reads the current session transcript (``~/.claude/projects/<encoded-cwd>/
-<session-id>.jsonl``) from the tail, locates the most recent assistant
-``message.usage`` entry, and renders the cumulative input tokens against
-the model's known context window.
+Everything is rendered from the JSON Claude Code pipes on stdin
+(https://code.claude.com/docs/en/statusline); no transcript parsing and no
+network access:
 
-Also renders the session's estimated usage-based cost from the
-``cost.total_cost_usd`` field Claude Code provides on stdin — this is what
-shows up for metered, non-subscription-included models such as Fable 5.
-
-Appends a session rate-limit "remaining" segment from
-``session_usage.load_segment()`` (5-hour / 7-day windows), refreshed in the
-background so the status line never blocks on the network.
+- ``context_window``: used tokens / window size / ``used_percentage``
+- ``cost.total_cost_usd``: client-side estimate at list price (not the bill)
+- ``rate_limits.five_hour`` / ``seven_day``: Pro/Max subscription windows
 
 Output example::
 
-    📁 cc-workflow · 🧠 ██████░░░░ 562k/1M (56%) · claude-opus-4-7 · 💰$1.23 · 🟢 85% 2h21m · 7d 96%
+    📁 cc-workflow · 🧠 ██████░░░░ 562k/1M (56%) · claude-opus-5-5 · 💰$1.23 · 🟢 85% 2h21m · 7d 96%
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
+import time
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent))
-import _common  # noqa: E402
-import session_usage  # noqa: E402
 
 # The status line renders emoji and box-drawing glyphs that legacy Windows
 # console code pages (e.g. cp932) cannot encode, which would crash the script
@@ -51,130 +42,148 @@ except (AttributeError, ValueError):
     pass
 
 
-# Approximate per-model context windows (in tokens).
-# Falls through to 200k if nothing matches.
-_MODEL_WINDOWS: list[tuple[str, int]] = [
-    # explicit "[1m]" / "1m" suffix means the 1M extended-context variant
-    (r"(?:\[1m\]|-1m\b|_1m\b|1m$)", 1_000_000),
-    # Opus 4.x defaults to 1M extended in current product positioning
-    (r"opus-?4", 1_000_000),
-    (r"sonnet-?4", 200_000),
-    (r"haiku-?4", 200_000),
-]
-
-
-def _max_tokens_for(model_id: str) -> int:
-    lower = model_id.lower()
-    for pat, n in _MODEL_WINDOWS:
-        if re.search(pat, lower):
-            return n
-    return 200_000
-
-
-def _encoded_cwd(cwd: str) -> str:
-    if not cwd:
-        return ""
-    return _common.encode_claude_project_path(cwd)
-
-
-def _locate_transcript(payload: dict) -> Path | None:
-    tp = payload.get("transcript_path") or ""
-    if tp:
-        p = Path(tp)
-        if p.is_file():
-            return p
-    sid = payload.get("session_id") or ""
-    cwd = payload.get("cwd") or os.getcwd()
-    if not sid:
+def _num(v: object) -> float | None:
+    """Coerce a JSON value to float, or None if it is missing / non-numeric."""
+    if isinstance(v, bool):
         return None
-    enc = _encoded_cwd(cwd)
-    if not enc:
-        return None
-    candidate = Path.home() / ".claude" / "projects" / enc / f"{sid}.jsonl"
-    return candidate if candidate.is_file() else None
-
-
-def _read_last_usage(transcript: Path, tail_bytes: int = 256_000) -> dict | None:
-    """Scan the tail of the JSONL for the most recent ``message.usage`` block."""
     try:
-        with transcript.open("rb") as f:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            f.seek(max(0, size - tail_bytes))
-            data = f.read()
-    except OSError:
+        return float(v)
+    except (TypeError, ValueError):
         return None
-    # Process newest line first
-    for raw in reversed(data.splitlines()):
-        if b'"cache_read_input_tokens"' not in raw:
-            continue
-        try:
-            obj = json.loads(raw)
-        except Exception:
-            continue
-        msg = obj.get("message") if isinstance(obj, dict) else None
-        if not isinstance(msg, dict):
-            continue
-        usage = msg.get("usage")
-        if isinstance(usage, dict) and any(
-            usage.get(k) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
-        ):
-            return usage
-    return None
 
 
-def _short_model_id(model_id: str) -> str:
-    # Strip any "[1m]" suffix and dated tail
-    s = re.sub(r"\[.*?\]$", "", model_id).strip()
-    return s
+def _dict(payload: dict, key: str) -> dict:
+    v = payload.get(key)
+    return v if isinstance(v, dict) else {}
 
 
-def _fmt(n: int) -> str:
+def _fmt(n: float) -> str:
     if n >= 1_000_000:
-        v = n / 1_000_000
-        s = f"{v:.1f}".rstrip("0").rstrip(".")
+        s = f"{n / 1_000_000:.1f}".rstrip("0").rstrip(".")
         return f"{s}M"
     if n >= 1_000:
-        return f"{n // 1_000}k"
-    return str(n)
+        return f"{round(n / 1_000)}k"
+    return str(int(n))
 
 
-def _bar(used: int, total: int, width: int = 10) -> str:
-    if total <= 0:
-        return ""
-    ratio = max(0.0, min(1.0, used / total))
+def _bar(ratio: float, width: int = 10) -> str:
+    ratio = max(0.0, min(1.0, ratio))
     filled = int(round(width * ratio))
     return "█" * filled + "░" * (width - filled)
 
 
 def _append(line: str, segment: str) -> str:
-    """Append a non-empty session segment with the standard separator."""
+    """Append a non-empty segment with the standard separator."""
     return f"{line} · {segment}" if segment else line
 
 
-def _cost_segment(payload: dict) -> str:
-    """Render the session's estimated usage-based cost (``cost.total_cost_usd``).
+def _model_label(payload: dict) -> str:
+    """Model id without any bracketed variant suffix (e.g. ``[1m]``)."""
+    model = payload.get("model")
+    if isinstance(model, str):
+        name = model
+    elif isinstance(model, dict):
+        name = model.get("id") or model.get("display_name") or ""
+    else:
+        name = ""
+    return re.sub(r"\[.*?\]$", "", name).strip() or "?"
 
-    Covers metered models like Fable 5 that are billed per-token regardless
-    of a Pro/Max subscription. "" when absent, non-numeric, or zero.
+
+def _context_segment(payload: dict) -> str:
+    """Render ``context_window`` as ``🧠 <bar> used/size (pct%)``.
+
+    ``used_percentage`` is null before the first API response and right after
+    ``/compact``; render ``🧠 —`` then instead of guessing.
     """
-    cost = payload.get("cost")
-    if not isinstance(cost, dict):
-        return ""
-    total = cost.get("total_cost_usd")
-    try:
-        total = float(total)
-    except (TypeError, ValueError):
-        return ""
-    if total <= 0:
+    cw = _dict(payload, "context_window")
+    pct = _num(cw.get("used_percentage"))
+    size = _num(cw.get("context_window_size"))
+    if pct is None or not size:
+        return "🧠 —"
+    used = _num(cw.get("total_input_tokens"))
+    if used is None:
+        used = size * pct / 100
+    return f"🧠 {_bar(pct / 100)} {_fmt(used)}/{_fmt(size)} ({round(pct)}%)"
+
+
+def _cost_segment(payload: dict) -> str:
+    """Render ``cost.total_cost_usd`` as ``💰$1.23``.
+
+    Claude Code estimates this client-side at API list price for every model,
+    so for Pro/Max subscribers it is a notional figure, not what is billed.
+    "" when absent, non-numeric, or zero.
+    """
+    total = _num(_dict(payload, "cost").get("total_cost_usd"))
+    if total is None or total <= 0:
         return ""
     return f"💰${total:.2f}"
 
 
+def _format_time_left(resets_at: object, now: float) -> str:
+    """Render seconds until ``resets_at`` (epoch seconds) as ``2h21m`` / ``21m`` / ``<1m``."""
+    reset = _num(resets_at)
+    if reset is None:
+        return ""
+    secs = reset - now
+    if secs <= 0:
+        return ""
+    if secs < 60:
+        return "<1m"
+    hours, mins = divmod(int(secs // 60), 60)
+    return f"{hours}h{mins}m" if hours else f"{mins}m"
+
+
+def _limit_emoji(remaining_pct: float) -> str:
+    """Traffic light by how much of the window is left."""
+    if remaining_pct > 50:
+        return "🟢"
+    if remaining_pct > 20:
+        return "🟡"
+    if remaining_pct > 5:
+        return "🟠"
+    return "🔴"
+
+
+def _remaining(window: object) -> float | None:
+    if not isinstance(window, dict):
+        return None
+    used = _num(window.get("used_percentage"))
+    return None if used is None else max(0.0, 100.0 - used)
+
+
+def _rate_limit_segment(payload: dict, now: float | None = None) -> str:
+    """Render ``rate_limits`` as ``🟢 85% 2h21m · 7d 96%`` (remaining share).
+
+    ``rate_limits`` is only present for Pro/Max subscribers after the first
+    API response, and each window may be absent on its own.
+    """
+    now = time.time() if now is None else now
+    limits = _dict(payload, "rate_limits")
+    parts: list[str] = []
+    five = limits.get("five_hour")
+    rem5 = _remaining(five)
+    if rem5 is not None:
+        seg = f"{_limit_emoji(rem5)} {round(rem5)}%"
+        left = _format_time_left(five.get("resets_at"), now)
+        parts.append(f"{seg} {left}" if left else seg)
+    rem7 = _remaining(limits.get("seven_day"))
+    if rem7 is not None:
+        parts.append(f"7d {round(rem7)}%")
+    return " · ".join(parts)
+
+
 def _folder_label(payload: dict) -> str:
     """Basename of the session's working directory, or "" if unknown."""
-    cwd = payload.get("cwd") or (payload.get("workspace") or {}).get("current_dir") or ""
+    cwd = _dict(payload, "workspace").get("current_dir") or payload.get("cwd") or ""
     return Path(cwd).name if cwd else ""
+
+
+def render(payload: dict, now: float | None = None) -> str:
+    folder = _folder_label(payload)
+    line = f"📁 {folder} · " if folder else ""
+    line += f"{_context_segment(payload)} · {_model_label(payload)}"
+    line = _append(line, _cost_segment(payload))
+    return _append(line, _rate_limit_segment(payload, now))
 
 
 def main() -> int:
@@ -182,43 +191,9 @@ def main() -> int:
         payload = json.loads(sys.stdin.read() or "{}")
     except Exception:
         payload = {}
-
-    model_info = payload.get("model") or {}
-    model_id = ""
-    if isinstance(model_info, dict):
-        model_id = model_info.get("id") or model_info.get("display_name") or ""
-    elif isinstance(model_info, str):
-        model_id = model_info
-
-    # Session rate-limit segment (independent of the conversation transcript).
-    session = session_usage.load_segment()
-    cost = _cost_segment(payload)
-
-    # Leading folder label (current working directory basename).
-    folder = _folder_label(payload)
-    head = f"📁 {folder} · " if folder else ""
-
-    transcript = _locate_transcript(payload)
-    usage = _read_last_usage(transcript) if transcript is not None else None
-
-    if not usage:
-        # Render a minimal line so the status bar still shows something useful.
-        line = _append(f"🧠 — · {_short_model_id(model_id) or '?'}", cost)
-        print(head + _append(line, session))
-        return 0
-
-    used = (
-        int(usage.get("input_tokens") or 0)
-        + int(usage.get("cache_creation_input_tokens") or 0)
-        + int(usage.get("cache_read_input_tokens") or 0)
-    )
-    max_tokens = _max_tokens_for(model_id)
-    pct = int(round(used / max_tokens * 100)) if max_tokens else 0
-    bar = _bar(used, max_tokens)
-    short = _short_model_id(model_id) or "?"
-
-    line = _append(f"🧠 {bar} {_fmt(used)}/{_fmt(max_tokens)} ({pct}%) · {short}", cost)
-    print(head + _append(line, session))
+    if not isinstance(payload, dict):
+        payload = {}
+    print(render(payload))
     return 0
 
 
